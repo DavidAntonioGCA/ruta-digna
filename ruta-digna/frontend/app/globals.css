@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { color: #0F172A; }
+}
+
+@layer components {
+  .card         { @apply bg-white rounded-card shadow-card p-4; }
+  .btn-primary  { @apply bg-primary text-white font-medium px-6 py-3 rounded-button hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-secondary{ @apply bg-neutral text-brand-text font-medium px-6 py-3 rounded-button hover:bg-gray-200 transition-colors; }
+  .btn-ghost    { @apply text-primary font-medium px-4 py-2 rounded-button hover:bg-blue-50 transition-colors; }
+  .badge-completado { @apply bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full; }
+  .badge-actual     { @apply bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full animate-pulse; }
+  .badge-pendiente  { @apply bg-gray-100 text-gray-500 text-sm font-medium px-3 py-1 rounded-full; }
+  .badge-urgente    { @apply bg-red-100 text-red-800 text-sm font-medium px-3 py-1 rounded-full; }
+}
