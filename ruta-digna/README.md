@@ -8,10 +8,10 @@ Hackathon Talent Land 2026 · Track Salud Digna · Equipo Last Dance RSCO
 
 | Persona | Carpeta | Stack |
 |---|---|---|
-| Arturo | `frontend/` | Next.js 14 + Tailwind |
-| Adrián | `backend/` | FastAPI + Claude API |
-| Juan Diego | `dashboard/` | React 18 + Vite + Chart.js |
-| David | `frontend/` + Figma | UX + Pitch + QA |
+| Juan Diego | `frontend/` | Next.js 14 + Tailwind |
+| Arturo | `backend/` | FastAPI + Claude API |
+| David | `dashboard/` | React 18 + Vite + Chart.js |
+| Adrian | `frontend/` + Figma | UX + Pitch + QA |
 
 ---
 
@@ -26,7 +26,7 @@ git clone <URL_DEL_REPO>
 cd ruta-digna
 ```
 
-### 2. Backend (Adrián — puerto 4000)
+### 2. Backend (Arturo — puerto 4000)
 ```bash
 cd backend
 cp .env.example .env        # Pedir credenciales a David
@@ -39,7 +39,7 @@ uvicorn main:app --reload --port 4000
 # Docs:      http://localhost:4000/docs
 ```
 
-### 3. Frontend (Arturo — puerto 3000)
+### 3. Frontend (Juan Diego — puerto 3000)
 ```bash
 cd frontend
 cp .env.example .env.local  # Pedir URL del backend a Adrián
@@ -47,7 +47,7 @@ npm install
 npm run dev
 ```
 
-### 4. Dashboard (Juan Diego — puerto 3001)
+### 4. Dashboard (David — puerto 3001)
 ```bash
 cd dashboard
 cp .env.example .env.local
