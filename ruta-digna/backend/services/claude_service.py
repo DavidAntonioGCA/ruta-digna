@@ -5,10 +5,16 @@ from typing import Optional, Union
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL   = "claude-sonnet-4-20250514"
 
+class ClaudeAPIError(Exception):
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Claude API error {status_code}: {message}")
+
 async def call_claude(
     system_prompt: str,
     user_message:  Union[str, dict],   # str para texto, dict para imagen
-    historial:     list = [],
+    historial:     Optional[list] = None,
     max_tokens:    int  = 1024
 ) -> str:
     """
@@ -24,7 +30,7 @@ async def call_claude(
         raise ValueError("CLAUDE_API_KEY no está en .env")
 
     # Construir lista de mensajes
-    messages = list(historial)
+    messages = list(historial or [])
 
     if isinstance(user_message, dict):
         # Ya viene formateado como bloque de mensaje (caso imagen)
@@ -46,8 +52,16 @@ async def call_claude(
 
     async with httpx.AsyncClient(timeout=45.0) as client:
         resp = await client.post(CLAUDE_API_URL, json=payload, headers=headers)
-        resp.raise_for_status()
-        return resp.json()["content"][0]["text"]
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body = e.response.text or ""
+            raise ClaudeAPIError(e.response.status_code, body[:2000]) from e
+        except httpx.HTTPError as e:
+            raise ClaudeAPIError(0, str(e)) from e
+
+        data = resp.json()
+        return data["content"][0]["text"]
 
 
 # ── System prompts ─────────────────────────────────────────────

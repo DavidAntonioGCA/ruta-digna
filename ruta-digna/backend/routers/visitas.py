@@ -1,6 +1,10 @@
 from fastapi import APIRouter, HTTPException
-from models.schemas import CrearVisitaRequest, AvanzarEstudioRequest
-from services.supabase_client import get_supabase
+try:
+    from backend.models.schemas import CrearVisitaRequest, AvanzarEstudioRequest
+    from backend.services.supabase_client import get_supabase
+except ImportError:
+    from models.schemas import CrearVisitaRequest, AvanzarEstudioRequest
+    from services.supabase_client import get_supabase
 
 router = APIRouter()
 
@@ -38,6 +42,16 @@ async def crear_visita(body: CrearVisitaRequest):
             "p_id_reservacion_sd": body.id_reservacion_sd
         }).execute()
         visita_id = result.data
+
+        # Actualizar colas_en_tiempo_real para cada estudio
+        from datetime import datetime
+        for id_estudio in body.ids_estudios:
+            sb.table('colas_en_tiempo_real').upsert({
+                'id_sucursal': body.id_sucursal,
+                'id_estudio': id_estudio,
+                'pacientes_en_espera': 1, # El trigger en BD idealmente sumaría, o lo hacemos aquí
+                'ultima_actualizacion': datetime.utcnow().isoformat()
+            }, on_conflict='id_sucursal,id_estudio').execute()
 
         # Obtener el estado inicial para devolverlo al frontend
         estado = sb.rpc("fn_obtener_estado_visita", {

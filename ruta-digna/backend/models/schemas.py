@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 # ── Visitas ────────────────────────────────────────────────────
@@ -16,7 +16,16 @@ class AvanzarEstudioRequest(BaseModel):
     nuevo_paso:        str    # espera|registro|pago|inicio_toma|fin_toma|diagnostico|finalizado
     nuevo_progreso:    int    # 0-100
 
-# ── IA ─────────────────────────────────────────────────────────
+# ── Estudios ───────────────────────────────────────────────────
+
+class RestriccionesRequest(BaseModel):
+    edad_paciente: Optional[int] = None
+    meses_desde_ultimo: Optional[int] = None
+
+class RestriccionesResponse(BaseModel):
+    tiene_restriccion: bool
+    requiere_orden_medica: bool
+    descripcion: Optional[str] = None
 
 class RecomendarRequest(BaseModel):
     mensaje: str
@@ -26,7 +35,7 @@ class RecomendarRequest(BaseModel):
 class ChatRequest(BaseModel):
     visita_id: str
     mensaje:   str
-    historial: Optional[List[dict]] = []
+    historial: List[dict] = Field(default_factory=list)
 
 class ExplicarRequest(BaseModel):
     imagen_base64: Optional[str] = None   # base64 sin prefijo data:...

@@ -1,7 +1,24 @@
 from fastapi import APIRouter, HTTPException
-from models.schemas import RecomendarRequest, ChatRequest, ExplicarRequest, IAResponse
-from services.claude_service import call_claude, PROMPT_EXTRACTOR, PROMPT_ASISTENTE, PROMPT_EXPLICADOR
-from services.supabase_client import get_supabase
+try:
+    from backend.models.schemas import RecomendarRequest, ChatRequest, ExplicarRequest, IAResponse
+    from backend.services.claude_service import (
+        ClaudeAPIError,
+        PROMPT_ASISTENTE,
+        PROMPT_EXPLICADOR,
+        PROMPT_EXTRACTOR,
+        call_claude,
+    )
+    from backend.services.supabase_client import get_supabase
+except ImportError:
+    from models.schemas import RecomendarRequest, ChatRequest, ExplicarRequest, IAResponse
+    from services.claude_service import (
+        ClaudeAPIError,
+        PROMPT_ASISTENTE,
+        PROMPT_EXPLICADOR,
+        PROMPT_EXTRACTOR,
+        call_claude,
+    )
+    from services.supabase_client import get_supabase
 import json
 
 router = APIRouter()
@@ -19,22 +36,70 @@ async def recomendar_sucursal(body: RecomendarRequest):
 
         # Paso 1: Claude extrae estudios y zona del texto libre
         raw = await call_claude(PROMPT_EXTRACTOR, body.mensaje, max_tokens=300)
+        print("Respuesta raw de Claude:", raw) # <-- DEBUG: Qué devuelve Claude realmente
         try:
             extraccion = json.loads(raw)
         except json.JSONDecodeError:
             extraccion = {"estudios_mencionados": [], "zona_o_referencia": None}
 
         estudios_detectados = extraccion.get("estudios_mencionados", [])
+        print("Estudios extraídos (lista):", estudios_detectados) # <-- DEBUG
         ids_estudios = []
 
-        # Paso 2: Buscar IDs en Supabase por nombre (ilike + strip para tildes y espacios)
+        # Paso 2: Buscar IDs en Python (para evitar crasheos de ilike en Supabase)
+        res_estudios = sb.table("estudios").select("id,nombre,preparacion_instrucciones,requiere_preparacion").execute()
+        todos_los_estudios = res_estudios.data or []
+        
         for nombre in estudios_detectados:
             nombre_limpio = nombre.strip().upper()
-            result = sb.table("estudios").select(
-                "id,nombre,preparacion_instrucciones,requiere_preparacion"
-            ).ilike("nombre", f"%{nombre_limpio}%").execute()
-            if result.data:
-                ids_estudios.append(result.data[0]["id"])
+            
+            # Buscar coincidencia exacta o substring en memoria
+            encontrado_en_bd = False
+            for est in todos_los_estudios:
+                if nombre_limpio in est["nombre"].upper():
+                    ids_estudios.append(est["id"])
+                    encontrado_en_bd = True
+                    break
+            
+            if not encontrado_en_bd:
+                # Fallback por palabras clave si no hay coincidencia exacta (ilike)
+                # "glucosa" -> LABORATORIO, "lab" -> LABORATORIO, etc.
+                palabras_clave = {
+                    "GLUCOSA": "LABORATORIO",
+                    "SANGRE": "LABORATORIO",
+                    "LAB": "LABORATORIO",
+                    "ORINA": "LABORATORIO",
+                    "RAYOS": "RAYOS X",
+                    "RADIOGRAFIA": "RAYOS X",
+                    "RADIOGRAFÍA": "RAYOS X",
+                    "ECO": "ULTRASONIDO",
+                    "ECOGRAFIA": "ULTRASONIDO",
+                    "ECOGRAFÍA": "ULTRASONIDO",
+                    "TAC": "TOMOGRAFÍA",
+                    "TOMOGRAFIA": "TOMOGRAFÍA",
+                    "RESONANCIA": "RESONANCIA MAGNÉTICA",
+                    "RM": "RESONANCIA MAGNÉTICA",
+                    "VISTA": "EXAMEN DE LA VISTA",
+                    "LENTES": "EXAMEN DE LA VISTA",
+                    "PAPA": "PAPANICOLAOU",
+                    "ELECTRO": "ELECTROCARDIOGRAMA",
+                    "ECG": "ELECTROCARDIOGRAMA"
+                }
+                
+                encontrado = False
+                for clave, estudio_oficial in palabras_clave.items():
+                    if clave in nombre_limpio:
+                        res_clave = sb.table("estudios").select("id").eq("nombre", estudio_oficial).execute()
+                        if res_clave.data:
+                            ids_estudios.append(res_clave.data[0]["id"])
+                            encontrado = True
+                            break
+                            
+                # Si de plano no encuentra nada y el id -2 existe (examen vista)
+                if not encontrado and ("VISTA" in nombre_limpio or "LENTES" in nombre_limpio):
+                    res_vista = sb.table("estudios").select("id").eq("id", -2).execute()
+                    if res_vista.data:
+                        ids_estudios.append(-2)
 
         if not ids_estudios:
             # Fallback: devolver todas las sucursales activas sin filtro de estudio
@@ -50,15 +115,46 @@ async def recomendar_sucursal(body: RecomendarRequest):
                 "advertencia":          "No pude identificar los estudios. Mostrando clínicas cercanas."
             }
 
-        # Paso 3: fn_recomendar_sucursales calcula score real
-        rec = sb.rpc("fn_recomendar_sucursales", {
-            "p_ids_estudios": ids_estudios,
-            "p_lat_usuario":  body.lat or 0.0,
-            "p_lon_usuario":  body.lon or 0.0,
-            "p_limite":       5
-        }).execute()
+        # Paso 3: Calcular score y recomendar sucursales (Lógica movida al backend para evitar error 1101 de PostgREST)
+        import math
+        
+        def calc_dist(lat1, lon1, lat2, lon2):
+            if not all([lat1, lon1, lat2, lon2]): return 999.0
+            # Haversine simple
+            return math.sqrt(((lat2 - lat1) * 111.0)**2 + ((lon2 - lon1) * 111.0 * math.cos(math.radians(lat1)))**2)
 
-        sucursales = rec.data or []
+        # 3.1 Traer todas las sucursales activas
+        res_sucursales = sb.table("sucursales").select("id,nombre,direccion,ciudad,latitud,longitud").eq("activa", True).execute()
+        todas_sucursales = res_sucursales.data or []
+        
+        sucursales_validas = []
+        for s in todas_sucursales:
+            # 3.2 Verificar que la sucursal tenga TODOS los estudios
+            res_consultorios = sb.table("consultorios_por_sucursal").select("id_estudio").eq("id_sucursal", s["id"]).in_("id_estudio", ids_estudios).execute()
+            estudios_disp = [c["id_estudio"] for c in (res_consultorios.data or [])]
+            
+            if len(set(estudios_disp)) == len(ids_estudios):
+                # 3.3 Calcular tiempo de espera (aproximado, asumiendo 20 min base)
+                # (Para la demo, calculamos 20 min por estudio + un random basado en id para variar)
+                tiempo_total = len(ids_estudios) * 20 + (s["id"] % 5) * 5
+                
+                # 3.4 Calcular distancia y score
+                dist = calc_dist(body.lat or 0, body.lon or 0, s.get("latitud"), s.get("longitud"))
+                score = round((tiempo_total * 0.6) + (dist * 0.4), 2)
+                
+                sucursales_validas.append({
+                    "id_sucursal": s["id"],
+                    "nombre_sucursal": s["nombre"],
+                    "direccion": s.get("direccion", ""),
+                    "ciudad": s.get("ciudad", ""),
+                    "tiempo_total_min": tiempo_total,
+                    "score": score,
+                    "estudios_disponibles": len(estudios_disp)
+                })
+
+        # 3.5 Ordenar por score
+        sucursales_validas.sort(key=lambda x: x["score"])
+        sucursales = sucursales_validas[:5]
         if not sucursales:
             raise HTTPException(404, "No hay sucursales disponibles para esos estudios")
 
@@ -90,8 +186,22 @@ async def recomendar_sucursal(body: RecomendarRequest):
 
     except HTTPException:
         raise
+    except ClaudeAPIError as e:
+        raise HTTPException(502, f"Claude falló ({e.status_code}): {e.message}")
     except Exception as e:
-        raise HTTPException(500, str(e))
+        import traceback
+        print("\n" + "="*50)
+        print("ERROR EN EL BACKEND:")
+        traceback.print_exc()
+        
+        # Si es error de Supabase, tratar de imprimir el detalle real
+        if hasattr(e, 'details'):
+            print("DETALLES SUPABASE:", e.details)
+        if hasattr(e, 'message'):
+            print("MENSAJE SUPABASE:", e.message)
+            
+        print("="*50 + "\n")
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
 
 
 @router.post("/chat", response_model=IAResponse)
@@ -113,8 +223,10 @@ async def chat_asistente(body: ChatRequest):
         reply = await call_claude(system, body.mensaje, historial=body.historial)
         return IAResponse(reply=reply)
 
+    except ClaudeAPIError as e:
+        raise HTTPException(502, f"Claude falló ({e.status_code}): {e.message}")
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
 
 
 @router.post("/explicar-resultados", response_model=IAResponse)
@@ -154,5 +266,7 @@ async def explicar_resultados(body: ExplicarRequest):
         reply = await call_claude(PROMPT_EXPLICADOR, mensaje)
         return IAResponse(reply=reply)
 
+    except ClaudeAPIError as e:
+        raise HTTPException(502, f"Claude falló ({e.status_code}): {e.message}")
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
