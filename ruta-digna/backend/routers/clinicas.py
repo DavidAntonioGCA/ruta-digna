@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException
-from services.supabase_client import get_supabase
+try:
+    from backend.services.supabase_client import get_supabase
+except ImportError:
+    from services.supabase_client import get_supabase
 
 router = APIRouter()
 
