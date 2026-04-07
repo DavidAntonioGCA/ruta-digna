@@ -1,12 +1,13 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { Send, Camera, ChevronDown, ChevronUp } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { Send, Camera, ChevronDown, ChevronUp, ArrowLeft, Sparkles } from 'lucide-react'
 import { Button, Card, ChatBubble, LoadingSpinner } from '../../components/ui'
 import { sendChat, explicarResultados, getVisitaStatus } from '../../lib/api'
 
 export default function ChatPage() {
   const { visitaId } = useParams<{ visitaId: string }>()
+  const router = useRouter()
 
   // Chat
   const [mensajes, setMensajes] = useState<{ role: 'user'|'assistant'; content: string }[]>([])
@@ -25,7 +26,6 @@ export default function ChatPage() {
   const [explicError, setExplicError]   = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Mensaje inicial del asistente
   useEffect(() => {
     const init = async () => {
       try {
@@ -47,7 +47,6 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [mensajes])
 
-  // Enviar mensaje al chat
   const handleSend = async () => {
     if (!input.trim() || chatLoading) return
     const userMsg = input.trim()
@@ -65,21 +64,17 @@ export default function ChatPage() {
     }
   }
 
-  // Seleccionar imagen y comprimir
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     if (file.size > 5 * 1024 * 1024) {
       setExplicError('La imagen es muy pesada. Toma una foto nueva.')
       return
     }
-
     const reader = new FileReader()
     reader.onload = (ev) => {
       const img = new Image()
       img.onload = () => {
-        // Comprimir con canvas — máx 1200px ancho, JPEG 80%
         const canvas  = document.createElement('canvas')
         const maxW    = 1200
         const ratio   = Math.min(1, maxW / img.width)
@@ -99,7 +94,6 @@ export default function ChatPage() {
     reader.readAsDataURL(file)
   }
 
-  // Explicar resultados
   const handleExplicar = async () => {
     if (!imgBase64 && !textoFallback.trim()) return
     setExplicLoading(true)
@@ -118,135 +112,139 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral flex flex-col">
-      <div className="max-w-md mx-auto w-full flex flex-col flex-1 px-4 py-4">
-
-        {/* Header */}
-        <div className="mb-4">
-          <h1 className="text-lg font-semibold text-brand-text">Asistente Ruta Digna</h1>
-          <p className="text-xs text-brand-muted">Responde preguntas sobre tu proceso</p>
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans">
+      {/* Header con estilo de App Nativa */}
+      <div className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+        <button onClick={() => router.back()} className="p-2 hover:bg-neutral rounded-full transition-colors">
+          <ArrowLeft size={20} className="text-brand-text" />
+        </button>
+        <div>
+          <h1 className="text-sm font-bold text-brand-text leading-none">Asistente Virtual</h1>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
+            <span className="text-[10px] font-bold text-brand-muted uppercase tracking-wider">En línea</span>
+          </div>
         </div>
+      </div>
 
+      <div className="max-w-md mx-auto w-full flex flex-col flex-1 pb-24">
         {/* ── SECCIÓN 1: CHAT ─────────────────────────────── */}
-        <Card className="flex flex-col mb-4" style={{ minHeight: 300 }}>
-          <div className="flex-1 overflow-y-auto pr-1 mb-3" style={{ maxHeight: 320 }}>
-            {mensajes.map((m, i) => (
-              <ChatBubble key={i} role={m.role} message={m.content} />
-            ))}
-            {chatLoading && (
-              <div className="flex justify-start mb-3">
-                <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-3 shadow-card">
-                  <div className="flex gap-1">
-                    {[0,1,2].map(i => (
-                      <div key={i} className="w-2 h-2 bg-gray-300 rounded-full animate-bounce"
-                        style={{ animationDelay: `${i * 0.15}s` }} />
-                    ))}
-                  </div>
+        <div className="flex-1 px-4 py-6 overflow-y-auto space-y-4">
+          {mensajes.map((m, i) => (
+            <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <ChatBubble role={m.role} message={m.content} />
+            </div>
+          ))}
+          {chatLoading && (
+            <div className="flex justify-start animate-pulse">
+              <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border border-gray-100">
+                <div className="flex gap-1">
+                  {[0,1,2].map(i => (
+                    <div key={i} className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
                 </div>
               </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
 
-          {/* Input del chat */}
-          <div className="flex gap-2 border-t pt-3">
-            <input
-              className="flex-1 border border-gray-200 rounded-input px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Escribe tu pregunta..."
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
-            />
-            <button
-              onClick={handleSend}
-              disabled={chatLoading || !input.trim()}
-              className="p-2 bg-primary text-white rounded-button disabled:opacity-50"
-            >
-              <Send size={18} />
-            </button>
-          </div>
-        </Card>
-
-        {/* Separador */}
-        <div className="flex items-center gap-3 mb-4">
+        {/* Separador Estético */}
+        <div className="px-4 py-4 flex items-center gap-3">
           <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-brand-muted font-medium">Explicar mis resultados</span>
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-brand-muted uppercase tracking-widest">
+            <Sparkles size={12} className="text-primary" />
+            IA Explicadora
+          </div>
           <div className="flex-1 h-px bg-gray-200" />
         </div>
 
-        {/* ── SECCIÓN 2: EXPLICADOR CON FOTO ──────────────── */}
-        <Card>
-          {/* Botón principal — subir foto */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full border-2 border-dashed border-gray-300 rounded-card p-6 flex flex-col items-center gap-2 hover:border-primary hover:bg-blue-50 transition-colors"
-          >
-            <Camera size={32} className="text-primary" />
-            <p className="font-medium text-sm text-brand-text">Tomar foto o subir imagen</p>
-            <p className="text-xs text-brand-muted">Foto de tus resultados de laboratorio</p>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleImageSelect}
-          />
-
-          {/* Preview de imagen */}
-          {imgPreview && (
-            <div className="mt-3">
-              <img src={imgPreview} alt="Preview" className="w-full rounded-lg object-contain max-h-48" />
-              <Button className="w-full mt-3" loading={explicLoading} onClick={handleExplicar}>
-                Explicar en lenguaje simple
-              </Button>
-            </div>
-          )}
-
-          {/* Link a texto alternativo */}
-          <button
-            className="w-full flex items-center justify-center gap-1 mt-3 text-xs text-brand-muted hover:text-primary transition-colors"
-            onClick={() => setMostrarTexto(v => !v)}
-          >
-            {mostrarTexto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            ¿Prefieres escribir el texto?
-          </button>
-
-          {mostrarTexto && (
-            <div className="mt-2">
-              <textarea
-                className="w-full border border-gray-200 rounded-input p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                rows={4}
-                placeholder="Pega aquí el texto de tus resultados de laboratorio..."
-                value={textoFallback}
-                onChange={e => setTextoFallback(e.target.value)}
-              />
-              <Button
-                className="w-full mt-2"
-                loading={explicLoading}
-                onClick={handleExplicar}
-                disabled={!textoFallback.trim()}
+        {/* ── SECCIÓN 2: EXPLICADOR ──────────────── */}
+        <div className="px-4">
+          <Card className="border-none shadow-xl bg-white overflow-hidden">
+            {!imgPreview && !mostrarTexto && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full bg-blue-50/50 border-2 border-dashed border-primary/20 rounded-xl p-8 flex flex-col items-center gap-3 hover:border-primary/50 hover:bg-blue-50 transition-all group"
               >
-                Explicar en lenguaje simple
-              </Button>
-            </div>
-          )}
+                <div className="w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <Camera size={24} />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-sm text-brand-text">¿Tienes resultados?</p>
+                  <p className="text-xs text-brand-muted mt-1">Sube una foto para explicarlos</p>
+                </div>
+              </button>
+            )}
 
-          {/* Error del explicador */}
-          {explicError && (
-            <p className="text-xs text-red-600 mt-2 text-center">{explicError}</p>
-          )}
+            {imgPreview && (
+              <div className="space-y-4">
+                <div className="relative rounded-xl overflow-hidden group">
+                  <img src={imgPreview} alt="Preview" className="w-full object-contain max-h-52 bg-neutral" />
+                  <button onClick={() => {setImgPreview(''); setImgBase64('')}} className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full backdrop-blur-md">
+                    <ChevronDown size={14} className="rotate-45" />
+                  </button>
+                </div>
+                <Button className="w-full shadow-lg shadow-primary/20" loading={explicLoading} onClick={handleExplicar}>
+                  Traducir resultados
+                </Button>
+              </div>
+            )}
 
-          {/* Resultado de la explicación */}
-          {explicacion && (
-            <div className="mt-3 p-3 bg-blue-50 rounded-card border border-blue-100">
-              <p className="text-xs font-medium text-primary mb-1">Explicación de tus resultados:</p>
-              <p className="text-sm text-brand-text leading-relaxed whitespace-pre-wrap">{explicacion}</p>
-            </div>
-          )}
-        </Card>
+            <button
+              className="w-full py-4 text-[10px] font-bold text-brand-muted hover:text-primary transition-colors flex items-center justify-center gap-2 uppercase tracking-tighter"
+              onClick={() => setMostrarTexto(v => !v)}
+            >
+              {mostrarTexto ? 'Cerrar editor' : 'O prefiere escribir el texto'}
+              {mostrarTexto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
 
+            {mostrarTexto && (
+              <div className="space-y-3 animate-in fade-in zoom-in-95 duration-300 pb-2">
+                <textarea
+                  className="w-full border-none bg-neutral/50 rounded-xl p-4 text-sm resize-none focus:ring-2 focus:ring-primary outline-none transition-all"
+                  rows={4}
+                  placeholder="Ej: Glucosa 110 mg/dL..."
+                  value={textoFallback}
+                  onChange={e => setTextoFallback(e.target.value)}
+                />
+                <Button className="w-full" loading={explicLoading} onClick={handleExplicar} disabled={!textoFallback.trim()}>
+                  Analizar texto
+                </Button>
+              </div>
+            )}
+
+            {explicacion && (
+              <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100 animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={14} className="text-primary" />
+                  <span className="text-[10px] font-bold text-primary uppercase">Interpretación IA</span>
+                </div>
+                <p className="text-sm text-brand-text leading-relaxed">{explicacion}</p>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* Input de Chat Fijo al fondo */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t px-4 py-4 z-20">
+        <div className="max-w-md mx-auto flex gap-2">
+          <input
+            className="flex-1 bg-neutral border-none rounded-2xl px-5 py-3 text-sm focus:ring-2 focus:ring-primary transition-all outline-none"
+            placeholder="Haz una pregunta..."
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSend()}
+          />
+          <button
+            onClick={handleSend}
+            disabled={chatLoading || !input.trim()}
+            className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 active:scale-90 transition-all disabled:opacity-50"
+          >
+            <Send size={20} />
+          </button>
+        </div>
       </div>
     </div>
   )
