@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
-import { getVisitaStatus, chatAsistente, buscarPaciente, type EstadoVisita, type EstudioVisita } from "@/app/lib/api"
+import { getVisitaStatus, getColaPaciente, chatAsistente, buscarPaciente, type EstadoVisita, type EstudioVisita, type ColaPaciente } from "@/app/lib/api"
 
 // Temas visuales por tipo de estudio
 const ESTUDIO_THEME: Record<string, { icon: any, color: string, bg: string }> = {
@@ -59,7 +59,12 @@ function EstudioCompletado({ estudio }: { estudio: EstudioVisita }) {
   )
 }
 
-function EstudioActual({ estudio, visitaId }: { estudio: EstudioVisita; visitaId: string }) {
+const TIPO_DOT: Record<string, string> = {
+  urgente: "bg-red-500", embarazada: "bg-pink-500", adulto_mayor: "bg-amber-500",
+  discapacidad: "bg-purple-500", con_cita: "bg-blue-500", sin_cita: "bg-slate-300",
+}
+
+function EstudioActual({ estudio, visitaId, cola }: { estudio: EstudioVisita; visitaId: string; cola: ColaPaciente | null }) {
   const [message, setMessage] = useState("")
   const [chatMessages, setChatMessages] = useState<{ text: string; isUser: boolean }[]>([])
   const [isTyping, setIsTyping] = useState(false)
@@ -104,9 +109,55 @@ function EstudioActual({ estudio, visitaId }: { estudio: EstudioVisita; visitaId
              </div>
              <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Tu Turno</p>
-                <p className="text-lg font-black text-slate-800">—</p>
+                <p className="text-lg font-black text-slate-800">
+                  {visita?.posicion_en_cola != null
+                    ? visita.posicion_en_cola === 1
+                      ? <span className="text-emerald-600">¡Siguiente!</span>
+                      : `#${visita.posicion_en_cola}`
+                    : "—"}
+                </p>
              </div>
           </div>
+          {/* Panel de posición en cola */}
+          {cola && cola.posicion != null && (
+            <div className="mb-6 bg-slate-50 rounded-3xl p-5 border border-slate-100">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4">Tu posición en la cola</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Pacientes delante */}
+                {cola.delante.map((p, i) => (
+                  <div key={`d-${i}`} className="flex flex-col items-center gap-1">
+                    <div className={`w-8 h-8 rounded-full ${TIPO_DOT[p.tipo] ?? "bg-slate-300"} opacity-40 flex items-center justify-center`}>
+                      <User className="w-4 h-4 text-white" />
+                    </div>
+                  </div>
+                ))}
+                {/* TÚ */}
+                <div className="flex flex-col items-center gap-1">
+                  <div className="w-10 h-10 rounded-full bg-blue-600 ring-4 ring-blue-100 flex items-center justify-center shadow-lg">
+                    <User className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="text-[8px] font-black text-blue-600 uppercase">Tú</span>
+                </div>
+                {/* Pacientes detrás */}
+                {cola.detras.map((p, i) => (
+                  <div key={`t-${i}`} className="flex flex-col items-center gap-1">
+                    <div className={`w-8 h-8 rounded-full ${TIPO_DOT[p.tipo] ?? "bg-slate-300"} opacity-25 flex items-center justify-center`}>
+                      <User className="w-4 h-4 text-white" />
+                    </div>
+                  </div>
+                ))}
+                {cola.total_en_cola > 4 && (
+                  <span className="text-xs font-black text-slate-400 ml-2">+{cola.total_en_cola - 4}</span>
+                )}
+              </div>
+              <p className="text-[10px] font-bold text-slate-500 mt-3">
+                {cola.posicion === 1
+                  ? "Eres el siguiente — prepárate"
+                  : `Posición ${cola.posicion} de ${cola.total_en_cola} en cola`}
+              </p>
+            </div>
+          )}
+
           <div className="mt-4 bg-blue-600 rounded-3xl p-5 text-white">
              <div className="flex items-center gap-2 mb-3">
                 <Bot className="w-4 h-4 text-blue-200" />
@@ -130,12 +181,24 @@ function EstudioActual({ estudio, visitaId }: { estudio: EstudioVisita; visitaId
 
 // ── PÁGINA PRINCIPAL ────────────────────────────────────────────────
 
+const TIPO_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  urgente:      { label: "URGENTE",      color: "text-red-600",    bg: "bg-red-50 border-red-100"    },
+  embarazada:   { label: "EMBARAZADA",   color: "text-pink-600",   bg: "bg-pink-50 border-pink-100"  },
+  adulto_mayor: { label: "ADULTO MAYOR", color: "text-amber-600",  bg: "bg-amber-50 border-amber-100"},
+  discapacidad: { label: "DISCAPACIDAD", color: "text-purple-600", bg: "bg-purple-50 border-purple-100"},
+  con_cita:     { label: "CON CITA",     color: "text-blue-600",   bg: "bg-blue-50 border-blue-100"  },
+  sin_cita:     { label: "SIN CITA",     color: "text-slate-500",  bg: "bg-slate-50 border-slate-100"},
+}
+
 export default function Tracking() {
   const [visita, setVisita] = useState<EstadoVisita | null>(null)
   const [loading, setLoading] = useState(true)
   const [visitaId, setVisitaId] = useState("")
   const [inputId, setInputId] = useState("")
   const [pacienteNombre, setPacienteNombre] = useState("Paciente")
+  const [prioridadAnterior, setPrioridadAnterior] = useState<string | null>(null)
+  const [notifPrioridad, setNotifPrioridad] = useState<string | null>(null)
+  const [cola, setCola] = useState<ColaPaciente | null>(null)
 
   useEffect(() => {
     const resolveVisitaId = async () => {
@@ -176,12 +239,21 @@ export default function Tracking() {
   const fetchStatus = useCallback(async () => {
     if (!visitaId) return
     try {
-      const data = await getVisitaStatus(visitaId); 
-      setVisita(data)
+      const data = await getVisitaStatus(visitaId)
+      setVisita(prev => {
+        // Detectar cambio de prioridad
+        if (prev && prev.tipo_paciente !== data.tipo_paciente) {
+          const info = TIPO_LABELS[data.tipo_paciente]
+          setNotifPrioridad(`Tu prioridad cambió a: ${info?.label ?? data.tipo_paciente}`)
+          setTimeout(() => setNotifPrioridad(null), 6000)
+        }
+        setPrioridadAnterior(data.tipo_paciente)
+        return data
+      })
     } catch (e) {
       console.error("Error fetching status", e)
-    } finally { 
-      setLoading(false) 
+    } finally {
+      setLoading(false)
     }
   }, [visitaId])
 
@@ -189,6 +261,15 @@ export default function Tracking() {
     if (!visitaId) return
     fetchStatus(); const iv = setInterval(fetchStatus, 5000); return () => clearInterval(iv)
   }, [visitaId, fetchStatus])
+
+  // Polling cola cada 8s
+  useEffect(() => {
+    if (!visitaId) return
+    const fetchCola = () => getColaPaciente(visitaId).then(setCola).catch(() => {})
+    fetchCola()
+    const iv = setInterval(fetchCola, 8000)
+    return () => clearInterval(iv)
+  }, [visitaId])
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-24 text-slate-900">
@@ -200,8 +281,16 @@ export default function Tracking() {
           </div>
           <div className="text-left">
             <h1 className="text-xl font-black tracking-tighter uppercase leading-none">{visita?.paciente || pacienteNombre}</h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100 uppercase tracking-tighter">Verificado</span>
+               {visita?.tipo_paciente && (() => {
+                 const info = TIPO_LABELS[visita.tipo_paciente] ?? TIPO_LABELS.sin_cita
+                 return (
+                   <span className={`px-2 py-0.5 text-[9px] font-black rounded border uppercase tracking-tighter transition-all ${info.bg} ${info.color}`}>
+                     {info.label}
+                   </span>
+                 )
+               })()}
                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: {visitaId ? visitaId.slice(0, 8) : "---"}</span>
             </div>
           </div>
@@ -210,6 +299,14 @@ export default function Tracking() {
            <Calendar className="w-5 h-5 text-slate-400" />
         </div>
       </header>
+
+      {/* Notificación de cambio de prioridad */}
+      {notifPrioridad && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-sm font-black px-6 py-3 rounded-2xl shadow-2xl shadow-blue-500/30 animate-in slide-in-from-top-4 flex items-center gap-3 border border-blue-500">
+          <ShieldCheck className="w-5 h-5 shrink-0" />
+          {notifPrioridad}
+        </div>
+      )}
 
       <main className="max-w-4xl mx-auto px-6 py-10">
         {!loading && !visita && (
@@ -275,7 +372,7 @@ export default function Tracking() {
               
               {visita.estudios.map((estudio, idx) => {
                 if (estudio.es_estado_final) return <EstudioCompletado key={estudio.id_estudio} estudio={estudio} />
-                if (estudio.es_actual) return <EstudioActual key={estudio.id_estudio} estudio={estudio} visitaId={visita.visita_id} />
+                if (estudio.es_actual) return <EstudioActual key={estudio.id_estudio} estudio={estudio} visitaId={visita.visita_id} cola={cola} />
                 return (
                   <div key={estudio.id_estudio} className="relative pl-14 pb-8 group">
                     <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center z-10 border border-slate-200">

@@ -93,3 +93,79 @@ async def get_paciente_status(visita_id: str):
     except ImportError:
         from routers.visitas import get_visita_status
     return await get_visita_status(visita_id)
+
+
+@app.get("/paciente/cola/{visita_id}", tags=["Visitas"])
+async def get_cola_paciente(visita_id: str):
+    """
+    Devuelve la posición del paciente en la cola de su estudio actual,
+    más info de los pacientes que van delante y detrás (sin datos privados).
+    """
+    try:
+        from backend.services.supabase_client import get_supabase
+    except ImportError:
+        from services.supabase_client import get_supabase
+    try:
+        sb = get_supabase()
+
+        # Obtener visita actual
+        v = sb.table("visitas").select("id_sucursal, tipo_paciente, timestamp_llegada, id_estudio_actual").eq("id", visita_id).single().execute()
+        if not v.data:
+            raise HTTPException(404, "Visita no encontrada")
+
+        id_sucursal = v.data["id_sucursal"]
+        id_estudio  = v.data.get("id_estudio_actual")
+        tipo        = v.data["tipo_paciente"]
+        llegada     = v.data["timestamp_llegada"]
+
+        if not id_estudio:
+            return {"posicion": None, "delante": [], "detras": []}
+
+        # Obtener posición via RPC
+        pos_r = sb.rpc("fn_posicion_en_cola", {"p_id_visita": visita_id, "p_id_estudio": id_estudio}).execute()
+        posicion = pos_r.data if pos_r.data else 1
+
+        # Prioridad numérica para ordenar
+        PRIO = {"urgente": 1, "embarazada": 2, "adulto_mayor": 3, "discapacidad": 4, "con_cita": 5, "sin_cita": 6}
+        mi_prio = PRIO.get(tipo, 6)
+
+        # Obtener todos en la cola del mismo estudio
+        cola_r = sb.from_("visitas").select(
+            "id, tipo_paciente, timestamp_llegada"
+        ).eq("id_sucursal", id_sucursal).eq("estatus", "en_proceso").neq("id", visita_id).execute()
+
+        # Filtrar los que tienen este estudio pendiente
+        ve_r = sb.from_("visita_estudios").select("id_visita, id_estudio").eq("id_estudio", id_estudio).execute()
+        visitas_en_estudio = {row["id_visita"] for row in (ve_r.data or [])}
+
+        candidatos = [
+            c for c in (cola_r.data or [])
+            if c["id"] in visitas_en_estudio
+        ]
+
+        def sort_key(c):
+            return (PRIO.get(c["tipo_paciente"], 6), c["timestamp_llegada"])
+
+        candidatos.sort(key=sort_key)
+        mi_key = (mi_prio, llegada)
+
+        delante = []
+        detras  = []
+        for c in candidatos:
+            ck = sort_key(c)
+            info = {"tipo": c["tipo_paciente"]}
+            if ck < mi_key:
+                delante.append(info)
+            else:
+                detras.append(info)
+
+        return {
+            "posicion": posicion,
+            "total_en_cola": posicion + len(detras),
+            "delante": delante[-3:],   # máx 3 antes de ti
+            "detras":  detras[:3],     # máx 3 después de ti
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))

@@ -31,7 +31,7 @@ export interface EstudioVisita {
 export interface EstadoVisita {
   visita_id: string; paciente: string; sucursal: string; ciudad: string; estatus: string
   tipo_paciente: string; progreso_general_pct: number; tiempo_espera_total_min: number
-  timestamp_llegada: string
+  timestamp_llegada: string; posicion_en_cola: number | null
   estudio_actual: { id_estudio: number; nombre: string; paso_actual: string; progreso_pct: number; estatus: string
     guia: { nombre_area: string; ubicacion: string; piso: number; instrucciones: string; referencia: string | null }
   } | null
@@ -39,6 +39,14 @@ export interface EstadoVisita {
 }
 
 export const getVisitaStatus = (visitaId: string) => apiFetch<EstadoVisita>(`/paciente/status/${visitaId}`)
+
+export interface ColaPaciente {
+  posicion: number | null
+  total_en_cola: number
+  delante: { tipo: string }[]
+  detras: { tipo: string }[]
+}
+export const getColaPaciente = (visitaId: string) => apiFetch<ColaPaciente>(`/paciente/cola/${visitaId}`)
 
 // ── Paciente / Auth ───────────────────────────────────────────
 
