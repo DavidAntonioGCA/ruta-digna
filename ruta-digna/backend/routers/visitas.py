@@ -9,6 +9,23 @@ except ImportError:
 router = APIRouter()
 
 
+def _sincronizar_colas(sb, id_sucursal: int):
+    """Recalcula colas_en_tiempo_real desde los datos reales de visitas."""
+    try:
+        sb.rpc("fn_sincronizar_colas", {"p_id_sucursal": id_sucursal}).execute()
+    except Exception:
+        pass  # No bloquear operación principal si falla el sync
+
+
+def _get_sucursal(sb, visita_id: str) -> int | None:
+    """Obtiene id_sucursal de una visita."""
+    try:
+        r = sb.table("visitas").select("id_sucursal").eq("id", visita_id).execute()
+        return r.data[0]["id_sucursal"] if r.data else None
+    except Exception:
+        return None
+
+
 @router.get("/status/{visita_id}")
 async def get_visita_status(visita_id: str):
     """Estado completo de la visita con todos los estudios ordenados + guía + alertas."""
@@ -30,7 +47,8 @@ async def get_visita_status(visita_id: str):
 async def crear_visita(body: CrearVisitaRequest):
     """
     Crea una visita con múltiples estudios ordenados automáticamente.
-    Ahora soporta tipo_paciente expandido: urgente, embarazada, adulto_mayor, etc.
+    Soporta tipo_paciente: urgente, embarazada, adulto_mayor, discapacidad, con_cita, sin_cita.
+    Sincroniza las colas en tiempo real tras la creación.
     """
     try:
         sb = get_supabase()
@@ -43,18 +61,12 @@ async def crear_visita(body: CrearVisitaRequest):
         }).execute()
         visita_id = result.data
 
-        from datetime import datetime
-        for id_estudio in body.ids_estudios:
-            sb.table('colas_en_tiempo_real').upsert({
-                'id_sucursal': body.id_sucursal,
-                'id_estudio': id_estudio,
-                'pacientes_en_espera': 1,
-                'ultima_actualizacion': datetime.utcnow().isoformat()
-            }, on_conflict='id_sucursal,id_estudio').execute()
-
         estado = sb.rpc("fn_obtener_estado_visita", {
             "p_visita_id": str(visita_id)
         }).execute()
+
+        # Sincronizar colas con datos reales
+        _sincronizar_colas(sb, body.id_sucursal)
 
         return {
             "visita_id": str(visita_id),
@@ -83,9 +95,14 @@ async def avanzar_estudio(visita_id: str, body: AvanzarEstudioRequest):
     """
     Avanza el estado de un estudio en la visita.
     Flujo demo: 1(PAGADO) → 9(INICIO_TOMA) → 10(FIN_TOMA) → 12(VERIFICADO)
+    Sincroniza las colas tras el avance.
     """
     try:
         sb = get_supabase()
+
+        # Obtener sucursal antes de avanzar
+        id_sucursal = _get_sucursal(sb, visita_id)
+
         result = sb.rpc("fn_avanzar_estudio_visita", {
             "p_id_visita":         visita_id,
             "p_id_visita_estudio": body.id_visita_estudio,
@@ -93,6 +110,11 @@ async def avanzar_estudio(visita_id: str, body: AvanzarEstudioRequest):
             "p_nuevo_paso":        body.nuevo_paso,
             "p_nuevo_progreso":    body.nuevo_progreso
         }).execute()
+
+        # Sincronizar colas: el avance puede completar un estudio
+        if id_sucursal:
+            _sincronizar_colas(sb, id_sucursal)
+
         return result.data
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -103,10 +125,14 @@ async def cambiar_tipo_paciente(visita_id: str, body: CambiarTipoPacienteRequest
     """
     Cambia el tipo/prioridad de un paciente.
     El operador puede marcar a alguien como urgente, embarazada, adulto mayor, etc.
-    Esto afecta su posición en las colas.
+    Al cambiar la prioridad, todos los tiempos de espera se recalculan.
     """
     try:
         sb = get_supabase()
+
+        # Obtener sucursal antes de cambiar
+        id_sucursal = _get_sucursal(sb, visita_id)
+
         result = sb.table("visitas").update({
             "tipo_paciente": body.tipo_paciente
         }).eq("id", visita_id).execute()
@@ -114,14 +140,18 @@ async def cambiar_tipo_paciente(visita_id: str, body: CambiarTipoPacienteRequest
         if not result.data:
             raise HTTPException(404, "Visita no encontrada")
 
-        # Re-obtener estado actualizado
+        # Sincronizar colas: el cambio de prioridad afecta a toda la cola
+        if id_sucursal:
+            _sincronizar_colas(sb, id_sucursal)
+
+        # Re-obtener estado actualizado (los tiempos ya reflejan la nueva prioridad)
         estado = sb.rpc("fn_obtener_estado_visita", {
             "p_visita_id": visita_id
         }).execute()
 
         return {
             "mensaje": f"Prioridad cambiada a {body.tipo_paciente}",
-            "estado": estado.data
+            "estado":  estado.data
         }
     except HTTPException:
         raise
@@ -137,7 +167,6 @@ async def get_estudios_reordenables(visita_id: str):
     """
     try:
         sb = get_supabase()
-        # Obtener ids de estudios de la visita
         ve_result = sb.table("visita_estudios") \
             .select("id_estudio") \
             .eq("id_visita", visita_id) \
