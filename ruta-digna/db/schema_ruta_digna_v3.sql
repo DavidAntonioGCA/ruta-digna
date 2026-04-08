@@ -754,7 +754,7 @@ declare
   v_rec   record;
 begin
   for v_rec in
-    select ve.id_estudio, ve.id_sucursal
+    select ve.id_estudio, v.id_sucursal
     from   visita_estudios ve
     join   visitas v on v.id = ve.id_visita
     join   estatus_servicio es on es.id = ve.id_estatus
