@@ -557,6 +557,14 @@ export default function App() {
             <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-400'}`} />
             <span className="text-xs text-gray-500">{connected ? 'Conectado' : 'Sin conexión'}</span>
           </div>
+          <a
+            href={`${import.meta.env.VITE_FRONTEND_URL || 'http://localhost:3000'}/login`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-medium"
+          >
+            Abrir App Paciente ↗
+          </a>
           <select
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"
             value={sucursalId}
