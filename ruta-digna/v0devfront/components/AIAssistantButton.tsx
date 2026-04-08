@@ -2,46 +2,69 @@
 
 import { useState, useRef, useEffect } from "react"
 import { MessageCircle, X, Send } from "lucide-react"
+import { chatAsistente } from "@/app/lib/api"
 
 interface ChatMessage {
   text: string
   isUser: boolean
 }
 
-const initialMessage = "Hola Maria! Estoy aqui para ayudarte durante tu visita. Puedes preguntarme sobre tus estudios, tiempos de espera, instrucciones de preparacion o cualquier duda que tengas."
-
-const mockResponse = "Entiendo tu pregunta. Recuerda que el orden de tus estudios fue calculado automaticamente: primero Laboratorio (requiere ayuno), despues Ultrasonido. Necesitas saber algo mas?"
-
 export default function AIAssistantButton() {
   const [isOpen, setIsOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { text: initialMessage, isUser: false }
+    {
+      text: "¡Hola! Soy el asistente de Ruta Digna. Puedo ayudarte con dudas sobre tus estudios, tiempos de espera, instrucciones de preparación o cómo llegar a cada área. ¿En qué te puedo ayudar?",
+      isUser: false,
+    },
   ])
   const [isTyping, setIsTyping] = useState(false)
+  const [historial, setHistorial] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Obtener visita_id de la URL o usar el de demo
+  const getVisitaId = () => {
+    if (typeof window === "undefined") return "06b8efbf-67bc-426c-9523-3059d0dec059"
+    const params = new URLSearchParams(window.location.search)
+    return params.get("id") || "06b8efbf-67bc-426c-9523-3059d0dec059"
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
   useEffect(() => {
-    if (isOpen) {
-      scrollToBottom()
-    }
+    if (isOpen) scrollToBottom()
   }, [chatMessages, isOpen])
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!message.trim()) return
+    const userMsg = message.trim()
 
-    setChatMessages(prev => [...prev, { text: message, isUser: true }])
+    setChatMessages((prev) => [...prev, { text: userMsg, isUser: true }])
     setMessage("")
     setIsTyping(true)
 
-    setTimeout(() => {
+    try {
+      const newHistorial = [...historial, { role: "user", content: userMsg }]
+      const response = await chatAsistente(getVisitaId(), userMsg, historial)
+
+      setChatMessages((prev) => [...prev, { text: response.reply, isUser: false }])
+      setHistorial([
+        ...newHistorial,
+        { role: "assistant", content: response.reply },
+      ])
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          text: "Lo siento, no pude conectarme en este momento. Intenta de nuevo en unos segundos.",
+          isUser: false,
+        },
+      ])
+    } finally {
       setIsTyping(false)
-      setChatMessages(prev => [...prev, { text: mockResponse, isUser: false }])
-    }, 800)
+    }
   }
 
   return (
@@ -61,14 +84,14 @@ export default function AIAssistantButton() {
 
       {/* Backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/40 z-50"
           onClick={() => setIsOpen(false)}
         />
       )}
 
       {/* Sheet/Drawer */}
-      <div 
+      <div
         className={`fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-[24px] transition-transform duration-300 ease-out ${
           isOpen ? "translate-y-0" : "translate-y-full"
         }`}
@@ -87,10 +110,10 @@ export default function AIAssistantButton() {
             </div>
             <div>
               <h2 className="font-semibold text-text">Asistente Ruta Digna</h2>
-              <p className="text-xs text-muted">Preguntame lo que necesites</p>
+              <p className="text-xs text-muted">Pregúntame lo que necesites</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setIsOpen(false)}
             className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center active:bg-slate-200 transition-colors"
           >
@@ -98,18 +121,21 @@ export default function AIAssistantButton() {
           </button>
         </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4" style={{ height: "calc(85vh - 140px)" }}>
+        {/* Messages */}
+        <div
+          className="flex-1 overflow-y-auto px-4 py-4"
+          style={{ height: "calc(85vh - 140px)" }}
+        >
           <div className="space-y-3">
             {chatMessages.map((msg, idx) => (
-              <div 
+              <div
                 key={idx}
                 className={`flex ${msg.isUser ? "justify-end" : "justify-start"}`}
               >
-                <div 
+                <div
                   className={`max-w-[85%] p-3 rounded-[16px] text-sm leading-relaxed ${
-                    msg.isUser 
-                      ? "bg-primary text-white rounded-br-[4px]" 
+                    msg.isUser
+                      ? "bg-primary text-white rounded-br-[4px]"
                       : "bg-neutral text-text rounded-bl-[4px]"
                   }`}
                 >
@@ -132,7 +158,7 @@ export default function AIAssistantButton() {
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* Input */}
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100">
           <div className="flex items-center gap-2">
             <input
@@ -143,9 +169,9 @@ export default function AIAssistantButton() {
               placeholder="Escribe tu pregunta..."
               className="flex-1 px-4 py-3 text-sm rounded-full border border-slate-200 bg-neutral focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
-            <button 
+            <button
               onClick={handleSend}
-              disabled={!message.trim()}
+              disabled={!message.trim() || isTyping}
               className="w-11 h-11 bg-primary rounded-full flex items-center justify-center active:bg-primary/90 transition-colors disabled:opacity-50"
             >
               <Send className="w-5 h-5 text-white" />
