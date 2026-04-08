@@ -35,6 +35,29 @@ export interface EstadoVisita {
 }
 
 export const getVisitaStatus = (visitaId: string) => apiFetch<EstadoVisita>(`/paciente/status/${visitaId}`)
+
+// ── Paciente / Auth ───────────────────────────────────────────
+
+export const buscarPaciente = (telefono: string) =>
+  apiFetch<{ encontrado: boolean; paciente_id?: string; nombre?: string; visita_id?: string | null }>(
+    `/paciente/buscar?telefono=${encodeURIComponent(telefono)}`
+  )
+
+export const registrarPaciente = (nombre: string, telefono: string) =>
+  apiFetch<{ paciente_id: string; nombre: string }>('/paciente/registrar', {
+    method: 'POST',
+    body: JSON.stringify({ nombre, telefono }),
+  })
+
+export const crearVisita = (body: {
+  id_paciente: string
+  id_sucursal: number
+  ids_estudios: number[]
+  tipo_paciente?: string
+}) => apiFetch<{ visita_id: string; estado: any }>('/visitas/', {
+  method: 'POST',
+  body: JSON.stringify({ tipo_paciente: 'sin_cita', ...body }),
+})
 export const getGuiaVisita = (visitaId: string) => apiFetch<any[]>(`/guias/visita/${visitaId}`)
 export const getEstudiosReordenables = (visitaId: string) => apiFetch<any>(`/visitas/${visitaId}/estudios-reordenables`)
 

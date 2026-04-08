@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, ArrowRight, ChevronDown, ChevronUp,
@@ -8,11 +9,13 @@ import {
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
-import { recomendar, type RecomendacionResponse } from "@/app/lib/api"
+import { recomendar, crearVisita, type RecomendacionResponse } from "@/app/lib/api"
 
 export default function Recomendar() {
+  const router = useRouter()
   const [mensaje, setMensaje] = useState("")
   const [loading, setLoading] = useState(false)
+  const [creando, setCreando] = useState(false)
   const [result, setResult] = useState<RecomendacionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showOthers, setShowOthers] = useState(false)
@@ -41,6 +44,31 @@ export default function Recomendar() {
       setError("No pudimos conectar con el servidor. Intenta de nuevo.")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleComenzar = async () => {
+    if (!result) return
+    setCreando(true)
+    try {
+      const session = JSON.parse(localStorage.getItem("ruta_session") || "null")
+      const paciente_id = session?.paciente_id || "00000000-0000-0000-0000-000000000001"
+      const ids_estudios = result.ids_estudios_detectados?.length
+        ? result.ids_estudios_detectados
+        : [2] // fallback: laboratorio
+      const id_sucursal = result.sucursal_recomendada.id_sucursal
+
+      const { visita_id } = await crearVisita({ id_paciente: paciente_id, id_sucursal, ids_estudios })
+
+      // Guardar visita_id en sesión
+      if (session) {
+        localStorage.setItem("ruta_session", JSON.stringify({ ...session, visita_id }))
+      }
+      router.push(`/antes-de-ir?id=${visita_id}`)
+    } catch {
+      setError("No se pudo crear la visita. Intenta de nuevo.")
+    } finally {
+      setCreando(false)
     }
   }
 
@@ -206,13 +234,21 @@ export default function Recomendar() {
                   </div>
                 )}
 
-                <Link href="/tracking" className="block mt-10">
-                  <button className="w-full bg-slate-900 hover:bg-black text-white font-bold py-5 rounded-[22px] transition-all shadow-2xl hover:shadow-slate-400/40 flex items-center justify-center gap-3 group/btn overflow-hidden relative">
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
-                    <span className="text-lg">Comenzar Visita</span>
-                    <ArrowRight className="w-5 h-5 group-hover/btn:translate-x-2 transition-transform" />
-                  </button>
-                </Link>
+                <button
+                  onClick={handleComenzar}
+                  disabled={creando}
+                  className="w-full mt-10 bg-slate-900 hover:bg-black disabled:bg-slate-300 text-white font-bold py-5 rounded-[22px] transition-all shadow-2xl hover:shadow-slate-400/40 flex items-center justify-center gap-3 group/btn overflow-hidden relative"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
+                  {creando ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span className="text-lg">Comenzar Visita</span>
+                      <ArrowRight className="w-5 h-5 group-hover/btn:translate-x-2 transition-transform" />
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

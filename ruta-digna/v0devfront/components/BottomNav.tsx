@@ -13,6 +13,7 @@ const navItems = [
 
 export default function BottomNav() {
   const pathname = usePathname()
+  if (pathname === "/login") return null
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-[#E2E8F0] z-50">

@@ -73,6 +73,13 @@ class CrearAlertaRequest(BaseModel):
 class ResolverAlertaRequest(BaseModel):
     resuelta_por: str = 'operador'
 
+# ── Paciente ──────────────────────────────────────────────────
+
+class RegistrarPacienteRequest(BaseModel):
+    nombre:   str
+    telefono: str
+    email:    Optional[str] = None
+
 # ── Guías de navegación ───────────────────────────────────────
 
 class GuiaNavegacionRequest(BaseModel):
