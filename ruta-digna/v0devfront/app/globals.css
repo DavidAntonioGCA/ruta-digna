@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+:root {
+  --primary: #2563EB;
+  --success: #16A34A;
+  --warning: #D97706;
+  --neutral: #F1F5F9;
+  --text: #0F172A;
+  --muted: #64748B;
+  --card-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+@theme inline {
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+  --color-primary: var(--primary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-neutral: var(--neutral);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+}
+
+@layer base {
+  * {
+    @apply border-slate-200;
+  }
+  body {
+    @apply bg-neutral text-text;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s ease-out infinite;
+}
