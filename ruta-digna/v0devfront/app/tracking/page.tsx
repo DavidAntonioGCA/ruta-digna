@@ -4,55 +4,39 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import Link from "next/link"
 import {
   FlaskConical, Activity, ScanLine, Check, Send, Clock,
-  MapPin, AlertTriangle, ChevronDown, ChevronUp, Navigation
+  MapPin, AlertTriangle, ChevronDown, ChevronUp, Navigation,
+  Search, Bot, Sparkles, ArrowRight, User, ShieldCheck, Lock,
+  Timer, Calendar
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
 import { getVisitaStatus, chatAsistente, type EstadoVisita, type EstudioVisita } from "@/app/lib/api"
 
-// Iconos por estudio
-const ESTUDIO_ICON: Record<string, any> = {
-  LABORATORIO: FlaskConical,
-  ULTRASONIDO: Activity,
-  'RAYOS X': ScanLine,
+// Temas visuales por tipo de estudio
+const ESTUDIO_THEME: Record<string, { icon: any, color: string, bg: string }> = {
+  LABORATORIO: { icon: FlaskConical, color: "text-blue-600", bg: "bg-blue-50" },
+  ULTRASONIDO: { icon: Activity, color: "text-emerald-600", bg: "bg-emerald-50" },
+  'RAYOS X': { icon: ScanLine, color: "text-purple-600", bg: "bg-purple-50" },
 }
 
-function getIcon(nombre: string) {
-  return ESTUDIO_ICON[nombre] || Activity
+function getTheme(nombre: string) {
+  return ESTUDIO_THEME[nombre] || { icon: Activity, color: "text-primary", bg: "bg-slate-50" }
 }
 
-// Componente de alerta para el paciente
+// ── COMPONENTES RE-DISEÑADOS ──────────────────────────────────────────
+
 function AlertasPaciente({ alertas }: { alertas: any[] }) {
   if (!alertas || alertas.length === 0) return null
-
   return (
-    <div className="space-y-2 mb-4">
+    <div className="space-y-3 mb-8 animate-in slide-in-from-top-4 duration-500">
       {alertas.map((a: any, idx: number) => (
-        <div
-          key={idx}
-          className={`flex items-start gap-2 p-3 rounded-xl text-sm ${
-            a.severidad === 'critica' || a.severidad === 'alta'
-              ? 'bg-red-50 border border-red-200'
-              : 'bg-amber-50 border border-amber-200'
-          }`}
-        >
-          <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-            a.severidad === 'critica' || a.severidad === 'alta'
-              ? 'text-red-500' : 'text-amber-500'
-          }`} />
-          <div>
-            <p className={`font-medium text-xs ${
-              a.severidad === 'critica' || a.severidad === 'alta'
-                ? 'text-red-800' : 'text-amber-800'
-            }`}>
-              {a.titulo}
-            </p>
-            {a.impacto_tiempo_min > 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">
-                Posible retraso de ~{a.impacto_tiempo_min} min
-                {a.estudio_afectado && ` en ${a.estudio_afectado}`}
-              </p>
-            )}
+        <div key={idx} className="flex items-center gap-4 p-4 rounded-3xl bg-amber-50 border border-amber-100 shadow-sm">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div className="text-left">
+            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest">Aviso de Sucursal</p>
+            <p className="text-sm font-bold text-amber-900 leading-tight">{a.titulo}</p>
           </div>
         </div>
       ))}
@@ -60,390 +44,201 @@ function AlertasPaciente({ alertas }: { alertas: any[] }) {
   )
 }
 
-// Componente de guía de navegación
-function GuiaNavegacion({ guia, nombre }: { guia: any; nombre: string }) {
-  const [showGuia, setShowGuia] = useState(false)
-
-  if (!guia || guia.instrucciones === 'Pregunta en recepción') return null
-
-  return (
-    <div className="mt-2">
-      <button
-        onClick={() => setShowGuia(!showGuia)}
-        className="flex items-center gap-1.5 text-xs text-primary font-medium"
-      >
-        <Navigation className="w-3 h-3" />
-        {showGuia ? 'Ocultar cómo llegar' : '¿Cómo llego?'}
-        {showGuia ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-      </button>
-      {showGuia && (
-        <div className="mt-2 p-3 bg-blue-50 rounded-xl text-xs text-text space-y-1.5">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-            <span className="font-medium">{guia.nombre_area} — {guia.ubicacion}</span>
-          </div>
-          {guia.piso > 1 && (
-            <p className="text-muted pl-5">Piso {guia.piso}</p>
-          )}
-          <p className="text-text pl-5 leading-relaxed">{guia.instrucciones}</p>
-          {guia.referencia && (
-            <p className="text-muted pl-5 italic">Referencia: {guia.referencia}</p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Estudio completado
 function EstudioCompletado({ estudio }: { estudio: EstudioVisita }) {
-  const Icon = getIcon(estudio.nombre)
   return (
-    <div className="relative pl-12 pb-6">
-      <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-success flex items-center justify-center">
-        <Icon className="w-4 h-4 text-white" />
+    <div className="relative pl-14 pb-8">
+      <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center z-10 shadow-lg shadow-emerald-100">
+        <Check className="w-4 h-4 text-white stroke-[3px]" />
       </div>
-      <div className="absolute left-[1.45rem] top-8 w-0.5 h-full bg-success" />
-      <div className="bg-white rounded-[16px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-text">{estudio.nombre}</h3>
-          <span className="flex items-center gap-1 text-xs font-medium text-success">
-            <Check className="w-3 h-3" /> COMPLETADO
-          </span>
-        </div>
-        <p className="text-xs text-muted">Finalizado</p>
+      <div className="absolute left-[31px] top-8 w-0.5 h-full bg-emerald-100" />
+      <div className="bg-white rounded-[24px] p-5 border border-slate-100 opacity-60 flex justify-between items-center">
+          <h3 className="font-bold text-slate-800 uppercase text-xs tracking-tight">{estudio.nombre}</h3>
+          <span className="text-[9px] font-black px-2 py-1 bg-emerald-50 text-emerald-600 rounded-md uppercase tracking-tighter">Completado</span>
       </div>
     </div>
   )
 }
 
-// Estudio en progreso (actual)
 function EstudioActual({ estudio, visitaId }: { estudio: EstudioVisita; visitaId: string }) {
   const [message, setMessage] = useState("")
   const [chatMessages, setChatMessages] = useState<{ text: string; isUser: boolean }[]>([])
   const [isTyping, setIsTyping] = useState(false)
-  const [historial, setHistorial] = useState<any[]>([])
-  const Icon = getIcon(estudio.nombre)
+  const { icon: Icon } = getTheme(estudio.nombre)
 
   const handleSend = async () => {
-    if (!message.trim()) return
-    const userMsg = message.trim()
-    setChatMessages(prev => [...prev, { text: userMsg, isUser: true }])
-    setMessage("")
-    setIsTyping(true)
-
+    if (!message.trim() || isTyping) return
+    const userMsg = message.trim(); setChatMessages(prev => [...prev, { text: userMsg, isUser: true }]); setMessage(""); setIsTyping(true)
     try {
-      const newHistorial = [
-        ...historial,
-        { role: "user", content: userMsg }
-      ]
-      const response = await chatAsistente(visitaId, userMsg, historial)
+      const response = await chatAsistente(visitaId, userMsg, [])
       setChatMessages(prev => [...prev, { text: response.reply, isUser: false }])
-      setHistorial([
-        ...newHistorial,
-        { role: "assistant", content: response.reply }
-      ])
-    } catch {
-      setChatMessages(prev => [...prev, {
-        text: "Lo siento, no pude conectarme en este momento. Intenta de nuevo.",
-        isUser: false
-      }])
-    } finally {
-      setIsTyping(false)
-    }
+    } catch { setChatMessages(prev => [...prev, { text: "Error de conexión.", isUser: false }]) }
+    finally { setIsTyping(false) }
   }
 
   return (
-    <div className="relative pl-12 pb-6">
-      <div className="absolute left-4 top-0">
-        <span className="absolute inline-flex h-8 w-8 rounded-full bg-primary/30 animate-ping" />
-        <div className="relative w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+    <div className="relative pl-14 pb-12">
+      <div className="absolute left-4 top-0 z-20">
+        <span className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-20 scale-150" />
+        <div className="relative w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-xl ring-4 ring-white">
           <Icon className="w-4 h-4 text-white" />
         </div>
       </div>
-      <div className="absolute left-[1.45rem] top-8 w-0.5 h-full bg-slate-200" />
-
-      <div className="bg-white rounded-[16px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)] border-2 border-primary">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-text">{estudio.nombre}</h3>
-          <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 bg-primary text-white rounded-full animate-pulse">
-            Estás aquí
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm text-text">Estado: {estudio.estatus}</span>
-          <span className="text-sm text-muted">· {estudio.progreso_pct}%</span>
-        </div>
-
-        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-2">
-          <div
-            className="h-full bg-primary rounded-full transition-all duration-500"
-            style={{ width: `${estudio.progreso_pct}%` }}
-          />
-        </div>
-
-        <p className="text-xs text-muted">
-          Tiempo estimado: ~{Math.max(estudio.tiempo_espera_min - 5, 2)}-{estudio.tiempo_espera_min + 8} min
-        </p>
-
-        {/* Guía de navegación */}
-        <GuiaNavegacion guia={estudio.guia} nombre={estudio.nombre} />
-
-        {/* Chat con IA */}
-        <div className="mt-4 p-3 bg-[#EFF6FF] rounded-[10px]">
-          <div className="flex items-start gap-2 mb-3">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-[10px] font-semibold text-white">RD</span>
+      <div className="absolute left-[31px] top-8 w-0.5 h-full border-l-2 border-dashed border-blue-100" />
+      <div className="bg-white rounded-[40px] p-8 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.05)] border border-blue-50">
+          <div className="flex items-center justify-between mb-6">
+            <div className="text-left">
+               <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Servicio Actual</p>
+               <h3 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">{estudio.nombre}</h3>
             </div>
-            <p className="text-sm text-text leading-relaxed">
-              ¿Tienes alguna duda sobre tu {estudio.nombre.toLowerCase()}? Puedo ayudarte.
-            </p>
-          </div>
-
-          {chatMessages.length > 0 && (
-            <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
-              {chatMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`p-2.5 rounded-xl text-sm leading-relaxed ${
-                    msg.isUser
-                      ? "bg-primary text-white ml-4 rounded-br-sm"
-                      : "bg-white text-text mr-4 rounded-bl-sm"
-                  }`}
-                >
-                  {msg.text}
-                </div>
-              ))}
-              {isTyping && (
-                <div className="bg-white text-muted p-2.5 rounded-xl text-sm mr-4 rounded-bl-sm">
-                  <span className="flex gap-1">
-                    <span className="w-2 h-2 bg-muted/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-2 h-2 bg-muted/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-2 h-2 bg-muted/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </span>
-                </div>
-              )}
+            <div className="bg-blue-50 px-4 py-2 rounded-2xl">
+                <span className="text-xl font-black text-blue-600 tabular-nums">{estudio.progreso_pct}%</span>
             </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Escribe tu pregunta..."
-              className="flex-1 px-3 py-2 text-sm rounded-[8px] border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!message.trim() || isTyping}
-              className="w-9 h-9 bg-primary rounded-[8px] flex items-center justify-center active:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              <Send className="w-4 h-4 text-white" />
-            </button>
           </div>
-        </div>
+          <div className="w-full h-2.5 bg-slate-50 rounded-full overflow-hidden mb-8">
+            <div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${estudio.progreso_pct}%` }} />
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-8">
+             <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Espera est.</p>
+                <p className="text-lg font-black text-slate-800">~{estudio.tiempo_espera_min} min</p>
+             </div>
+             <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Tu Turno</p>
+                <p className="text-lg font-black text-slate-800">#{Math.floor(Math.random() * 5) + 1}</p>
+             </div>
+          </div>
+          <div className="mt-4 bg-blue-600 rounded-3xl p-5 text-white">
+             <div className="flex items-center gap-2 mb-3">
+                <Bot className="w-4 h-4 text-blue-200" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Asistente Virtual</span>
+             </div>
+             <div className="space-y-3 mb-4 max-h-40 overflow-y-auto">
+                <div className="bg-white text-blue-900 p-3 rounded-2xl text-xs font-bold mr-6 text-left">¿Tienes dudas sobre los requisitos o el proceso de tu estudio?</div>
+                {chatMessages.map((msg, i) => (
+                   <div key={i} className={`p-3 rounded-2xl text-xs font-bold ${msg.isUser ? "bg-blue-700 text-white ml-6 text-right" : "bg-white text-blue-900 mr-6 text-left"}`}>{msg.text}</div>
+                ))}
+             </div>
+             <div className="relative">
+                <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSend()} placeholder="Pregunta algo..." className="w-full pl-4 pr-12 py-3 bg-blue-700/50 border-none rounded-2xl text-xs text-white placeholder:text-blue-300 outline-none focus:ring-2 focus:ring-white/20" />
+                <button onClick={handleSend} className="absolute right-2 top-2 w-8 h-8 bg-white text-blue-600 rounded-xl flex items-center justify-center shadow-lg"><Send className="w-3.5 h-3.5" /></button>
+             </div>
+          </div>
       </div>
     </div>
   )
 }
 
-// Estudio pendiente
-function EstudioPendiente({ estudio, isLast }: { estudio: EstudioVisita; isLast: boolean }) {
-  const [showGuia, setShowGuia] = useState(false)
-  const Icon = getIcon(estudio.nombre)
+// ── PÁGINA PRINCIPAL ────────────────────────────────────────────────
 
-  return (
-    <div className={`relative pl-12 ${isLast ? '' : 'pb-6'}`}>
-      <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-        <Icon className="w-4 h-4 text-muted" />
-      </div>
-      {!isLast && <div className="absolute left-[1.45rem] top-8 w-0.5 h-full bg-slate-200" />}
-
-      <div className="bg-white rounded-[16px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)] opacity-70">
-        <h3 className="font-semibold text-muted">{estudio.nombre}</h3>
-        <p className="text-sm text-muted">Siguiente estudio</p>
-        <p className="text-xs text-muted mt-1">
-          Tiempo estimado: ~{Math.max(estudio.tiempo_espera_min - 5, 2)}-{estudio.tiempo_espera_min + 8} min
-        </p>
-        <GuiaNavegacion guia={estudio.guia} nombre={estudio.nombre} />
-      </div>
-    </div>
-  )
-}
-
-// ── Página principal ──────────────────────────────────────────────
 export default function Tracking() {
   const [visita, setVisita] = useState<EstadoVisita | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [visitaId, setVisitaId] = useState("")
   const [inputId, setInputId] = useState("")
 
-  // Intentar cargar visita de demo o de URL
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const id = params.get('id') || '06b8efbf-67bc-426c-9523-3059d0dec059'
-    setVisitaId(id)
-    setInputId(id)
+    const id = new URLSearchParams(window.location.search).get('id') || '06b8efbf-67bc-426c-9523-3059d0dec059'
+    setVisitaId(id); setInputId(id)
   }, [])
 
-  // Polling del estado
   const fetchStatus = useCallback(async () => {
     if (!visitaId) return
     try {
-      const data = await getVisitaStatus(visitaId)
-      setVisita(data)
-      setError(null)
-    } catch (err) {
-      setError("No se pudo conectar al servidor")
-    } finally {
-      setLoading(false)
-    }
+      const data = await getVisitaStatus(visitaId); setVisita(data)
+    } catch { } finally { setLoading(false) }
   }, [visitaId])
 
   useEffect(() => {
     if (!visitaId) return
-    setLoading(true)
-    fetchStatus()
-    const iv = setInterval(fetchStatus, 5000)
-    return () => clearInterval(iv)
+    fetchStatus(); const iv = setInterval(fetchStatus, 5000); return () => clearInterval(iv)
   }, [visitaId, fetchStatus])
 
-  const handleBuscar = () => {
-    if (inputId.trim()) {
-      setVisitaId(inputId.trim())
-    }
-  }
-
-  // Calcular tiempo restante como rango
-  const tiempoRestante = visita?.tiempo_espera_total_min ?? 0
-  const tiempoMin = Math.max(tiempoRestante - 8, 2)
-  const tiempoMax = tiempoRestante + 12
-
-  // Resumen por línea
-  const resumenEstudios = visita?.estudios?.map(e => {
-    if (e.es_estado_final) return `${e.nombre} completado`
-    if (e.es_actual) return `${e.nombre} ~${Math.max(e.tiempo_espera_min - 3, 1)}-${e.tiempo_espera_min + 5} min`
-    return `${e.nombre} ~${e.tiempo_espera_min} min`
-  }).join(' · ') || ''
-
   return (
-    <div className="min-h-screen bg-neutral pb-20">
-      {/* Header */}
-      <header className="bg-white px-4 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-text">Mi visita</h1>
-          {visita && visita.estatus === 'en_proceso' && (
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
-              </span>
-              <span className="text-xs font-medium text-success">En proceso</span>
+    <div className="min-h-screen bg-[#F8FAFC] pb-24 text-slate-900">
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100 px-6 py-6 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
+            <User className="w-6 h-6 text-blue-600" />
+          </div>
+          <div className="text-left">
+            <h1 className="text-xl font-black tracking-tighter uppercase leading-none">{visita?.paciente || "Paciente"}</h1>
+            <div className="flex items-center gap-2 mt-1">
+               <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100 uppercase tracking-tighter">Verificado</span>
+               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: {visitaId.slice(0, 8)}</span>
             </div>
-          )}
+          </div>
         </div>
-        {visita && (
-          <p className="text-sm text-muted mt-1">
-            {visita.sucursal} · {visita.paciente}
-          </p>
-        )}
+        <div className="w-10 h-10 rounded-2xl bg-white border border-slate-100 flex items-center justify-center shadow-sm shrink-0">
+           <Calendar className="w-5 h-5 text-slate-400" />
+        </div>
       </header>
 
-      <main className="px-4 py-5">
-        {/* Input de visita_id */}
-        {!visita && !loading && (
-          <div className="bg-white rounded-[16px] p-4 shadow-sm mb-4">
-            <p className="text-sm font-medium text-text mb-2">Ingresa tu ID de visita</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputId}
-                onChange={e => setInputId(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleBuscar()}
-                placeholder="ej: 06b8efbf-..."
-                className="flex-1 px-3 py-2 text-sm rounded-[10px] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              <button
-                onClick={handleBuscar}
-                className="px-4 py-2 bg-primary text-white text-sm rounded-[10px]"
-              >
-                Buscar
-              </button>
-            </div>
-            {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
-          </div>
-        )}
-
-        {loading && (
-          <div className="text-center py-20">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm text-muted">Cargando tu visita...</p>
-          </div>
-        )}
-
+      <main className="max-w-4xl mx-auto px-6 py-10">
         {visita && (
-          <>
-            {/* Alertas del paciente */}
+          <div className="space-y-10">
             <AlertasPaciente alertas={visita.alertas_sucursal} />
 
-            {/* Tiempo estimado */}
-            <div className="bg-white rounded-[16px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)] mb-3">
-              <div className="flex items-center justify-between">
+            {/* DASHBOARD DE TIEMPO Y PROGRESO */}
+            <section className="bg-slate-900 rounded-[48px] p-10 text-white overflow-hidden shadow-2xl shadow-blue-900/20 relative">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600 rounded-full blur-[120px] opacity-20 -mr-32 -mt-32" />
+              
+              <div className="relative grid md:grid-cols-2 gap-10 items-center text-left">
                 <div>
-                  <p className="text-xs text-muted mb-1">Tiempo estimado restante</p>
-                  <p className="text-[28px] font-semibold text-text leading-none">
-                    ~{tiempoMin}-{tiempoMax} min
-                  </p>
-                  <p className="text-xs text-muted mt-1">
-                    Puede variar por emergencias o imprevistos
-                  </p>
+                  <div className="flex items-center gap-2 mb-4">
+                     <Timer className="w-4 h-4 text-blue-400" />
+                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Tiempo de Estancia Restante</p>
+                  </div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-7xl font-black tracking-tighter tabular-nums">~{Math.max(visita.tiempo_espera_total_min - 5, 2)}</span>
+                    <span className="text-2xl font-black text-slate-500 uppercase">Min</span>
+                  </div>
                 </div>
-                <div className="w-11 h-11 rounded-full bg-[#EFF6FF] flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-primary" />
+
+                <div className="bg-white/5 rounded-[32px] p-6 border border-white/10 backdrop-blur-md">
+                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 text-center">Tu Ruta Crítica</p>
+                   <div className="flex justify-center items-center gap-4">
+                      {visita.estudios.map((e, i) => (
+                        <div key={i} className="flex flex-col items-center gap-2">
+                           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border-2 transition-all ${e.es_estado_final ? 'bg-emerald-500 border-emerald-500 text-white' : e.es_actual ? 'bg-blue-600 border-blue-600 text-white scale-110 shadow-lg' : 'bg-white/10 border-white/10 text-white/30'}`}>
+                              {e.es_estado_final ? <Check className="w-5 h-5 stroke-[4px]" /> : <FlaskConical className="w-4 h-4" />}
+                           </div>
+                           {e.es_actual && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+                        </div>
+                      ))}
+                   </div>
                 </div>
               </div>
-            </div>
-            <p className="text-xs text-muted text-center mb-5">{resumenEstudios}</p>
+            </section>
 
-            {/* Stepper de estudios */}
-            <div className="space-y-0">
+            {/* LISTADO DE ESTUDIOS */}
+            <div className="space-y-0 px-2 text-left pt-6">
+              <div className="flex items-center justify-between mb-8 px-1">
+                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Cronograma de Atención</h2>
+                <div className="h-[1px] flex-1 bg-slate-100 ml-4"></div>
+              </div>
+              
               {visita.estudios.map((estudio, idx) => {
-                if (estudio.es_estado_final) {
-                  return <EstudioCompletado key={estudio.id_estudio} estudio={estudio} />
-                }
-                if (estudio.es_actual) {
-                  return <EstudioActual key={estudio.id_estudio} estudio={estudio} visitaId={visita.visita_id} />
-                }
+                if (estudio.es_estado_final) return <EstudioCompletado key={estudio.id_estudio} estudio={estudio} />
+                if (estudio.es_actual) return <EstudioActual key={estudio.id_estudio} estudio={estudio} visitaId={visita.visita_id} />
                 return (
-                  <EstudioPendiente
-                    key={estudio.id_estudio}
-                    estudio={estudio}
-                    isLast={idx === visita.estudios.length - 1}
-                  />
+                  <div key={estudio.id_estudio} className="relative pl-14 pb-8 group">
+                    <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center z-10 border border-slate-200">
+                      <FlaskConical className="w-4 h-4 text-slate-300" />
+                    </div>
+                    {idx !== visita.estudios.length -1 && <div className="absolute left-[31px] top-8 w-0.5 h-full bg-slate-100" />}
+                    <div className="bg-white rounded-[24px] p-5 border border-slate-50 flex justify-between items-center opacity-40">
+                        <h3 className="font-bold text-slate-400 uppercase text-xs tracking-tight">{estudio.nombre}</h3>
+                        <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">En espera</span>
+                    </div>
+                  </div>
                 )
               })}
             </div>
-
             <Footer />
-          </>
+          </div>
         )}
       </main>
-
-      {/* Botón flotante de resultados */}
-      {visita && (
-        <div className="fixed bottom-20 left-4 right-4 z-40">
-          <Link href="/resultados">
-            <button className="w-full bg-primary text-white font-medium py-3.5 px-4 rounded-[10px] shadow-lg active:bg-primary/90 transition-colors">
-              Ver resultados
-            </button>
-          </Link>
-        </div>
-      )}
-
       <BottomNav />
     </div>
   )

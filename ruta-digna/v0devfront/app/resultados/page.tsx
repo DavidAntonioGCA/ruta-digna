@@ -2,7 +2,10 @@
 
 import { useState, useRef } from "react"
 import Link from "next/link"
-import { ArrowLeft, Camera, Lock, Sparkles, Upload, FileText } from "lucide-react"
+import {  
+  ArrowLeft, Camera, Lock, Sparkles, FileText,  
+  Upload, Image as ImageIcon, CheckCircle2, AlertCircle, RefreshCw, Printer
+} from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
 import { explicarResultados } from "@/app/lib/api"
@@ -21,14 +24,9 @@ export default function Resultados() {
   const handleImagenSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     setMediaType(file.type || "image/jpeg")
-
-    // Preview
     const previewUrl = URL.createObjectURL(file)
     setImagenPreview(previewUrl)
-
-    // Base64
     const reader = new FileReader()
     reader.onloadend = () => {
       const base64 = (reader.result as string).split(",")[1]
@@ -41,7 +39,6 @@ export default function Resultados() {
     setLoading(true)
     setError(null)
     setRespuesta(null)
-
     try {
       let data: any = {}
       if (activeTab === "foto" && imagenBase64) {
@@ -53,7 +50,6 @@ export default function Resultados() {
         setLoading(false)
         return
       }
-
       const response = await explicarResultados(data)
       setRespuesta(response.reply)
     } catch (err) {
@@ -63,142 +59,166 @@ export default function Resultados() {
     }
   }
 
+  // MÉTODO NATIVO: Más seguro y sin errores de librería
+  const imprimirReporte = () => {
+    window.print();
+  };
+
   return (
-    <div className="min-h-screen bg-neutral pb-4">
-      <header className="bg-white px-4 py-4 shadow-sm flex items-center gap-3">
-        <Link href="/tracking">
-          <ArrowLeft className="w-5 h-5 text-text" />
-        </Link>
-        <h1 className="text-lg font-semibold text-text">Mis resultados</h1>
+    <div className="min-h-screen bg-[#F8FAFC] pb-24 text-slate-900 selection:bg-blue-100">
+      {/* Header - Se oculta al imprimir */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex items-center justify-between print:hidden">
+        <div className="flex items-center gap-4">
+          <Link href="/tracking" className="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-all active:scale-90">
+            <ArrowLeft className="w-5 h-5 text-slate-600" />
+          </Link>
+          <h1 className="text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent select-none tracking-tighter uppercase">
+            Análisis de Resultados
+          </h1>
+        </div>
+        <div className="flex items-center gap-1.5 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
+           <Lock className="w-3 h-3 text-blue-600" />
+           <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">Seguro</span>
+        </div>
       </header>
 
-      <main className="px-4 py-5">
-        {/* Tabs */}
-        <div className="flex gap-2 mb-5">
+      <main className="max-w-2xl mx-auto px-6 py-8 space-y-8">
+        
+        {/* Tabs - Se ocultan al imprimir */}
+        <div className="bg-slate-100 p-1.5 rounded-[24px] flex gap-1 shadow-inner border border-slate-200 print:hidden">
           <button
             onClick={() => setActiveTab("foto")}
-            className={`flex-1 py-2.5 px-4 rounded-[10px] text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              activeTab === "foto" ? "bg-primary text-white" : "bg-white text-muted"
+            className={`flex-1 py-3.5 px-4 rounded-[20px] text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+              activeTab === "foto" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             <Camera className="w-4 h-4" /> Foto
           </button>
           <button
             onClick={() => setActiveTab("texto")}
-            className={`flex-1 py-2.5 px-4 rounded-[10px] text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              activeTab === "texto" ? "bg-primary text-white" : "bg-white text-muted"
+            className={`flex-1 py-3.5 px-4 rounded-[20px] text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+              activeTab === "texto" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             <FileText className="w-4 h-4" /> Texto
           </button>
         </div>
 
-        {activeTab === "foto" ? (
-          <>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImagenSelect}
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-            />
-
-            {!imagenPreview ? (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-primary/40 bg-[#EFF6FF] rounded-[16px] p-6 text-center mb-5 cursor-pointer active:bg-primary/5"
+        {/* Sección de Input - Se oculta al imprimir */}
+        <section className="animate-in fade-in zoom-in-95 duration-500 print:hidden">
+          {activeTab === "foto" ? (
+            <div className="space-y-6">
+              <input type="file" ref={fileInputRef} onChange={handleImagenSelect} accept="image/*" className="hidden" />
+              {!imagenPreview ? (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="group border-2 border-dashed border-slate-200 bg-white hover:bg-blue-50/50 hover:border-blue-400/50 rounded-[40px] p-12 text-center transition-all cursor-pointer relative overflow-hidden"
+                >
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-[28px] bg-blue-50 flex items-center justify-center group-hover:scale-110 group-hover:bg-blue-100 transition-all duration-500 shadow-sm">
+                    <Upload className="w-8 h-8 text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-800 mb-2 tracking-tight text-center">Cargar Estudios</h3>
+                  <p className="text-xs text-slate-400 font-bold px-8 leading-relaxed mb-8 uppercase tracking-tight text-center">Captura tu reporte para interpretación IA</p>
+                  <div className="flex justify-center">
+                    <div className="inline-flex items-center gap-2 px-8 py-4 bg-blue-600 text-white text-[11px] font-black rounded-[20px] shadow-xl shadow-blue-500/30 active:scale-95 uppercase tracking-[0.2em]">
+                      <ImageIcon className="w-4 h-4" /> Seleccionar Archivo
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="relative group rounded-[40px] overflow-hidden border-8 border-white shadow-2xl shadow-slate-300 aspect-[4/3] max-w-sm mx-auto">
+                    <img src={imagenPreview} alt="Preview" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center backdrop-blur-sm">
+                       <button onClick={() => fileInputRef.current?.click()} className="bg-white p-5 rounded-full text-slate-900 shadow-2xl active:scale-90 transition-transform">
+                         <RefreshCw className="w-8 h-8" />
+                       </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-5 text-[10px] font-black bg-slate-100 text-slate-500 rounded-[22px] hover:bg-slate-200 transition-all uppercase tracking-widest">Cambiar</button>
+                    <button onClick={handleExplicar} disabled={loading} className="flex-[2] py-5 bg-blue-600 text-white rounded-[22px] font-black text-[11px] shadow-2xl transition-all active:scale-[0.98] disabled:opacity-50 uppercase tracking-[0.2em] flex items-center justify-center gap-3">
+                      {loading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                      Analizar con IA
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-100 space-y-6">
+              <textarea
+                className="w-full p-6 rounded-[24px] border-2 border-slate-100 bg-slate-50/50 text-sm resize-none transition-all duration-300 focus:bg-white focus:border-blue-400/30 focus:ring-8 focus:ring-blue-50 outline-none placeholder:text-slate-400 min-h-[300px] font-medium"
+                value={textoResultados}
+                onChange={e => setTextoResultados(e.target.value)}
+                placeholder="Pega aquí el contenido de tus estudios..."
+              />
+              <button
+                onClick={handleExplicar}
+                disabled={loading || !textoResultados.trim()}
+                className="w-full bg-blue-600 text-white font-black py-5 rounded-[22px] shadow-2xl active:scale-[0.98] disabled:opacity-50 uppercase tracking-[0.2em] text-[11px] flex items-center justify-center gap-3"
               >
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Camera className="w-6 h-6 text-primary" />
+                {loading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                Interpretar Texto
+              </button>
+            </div>
+          )}
+        </section>
+
+        {error && (
+          <div className="bg-red-50 border border-red-100 rounded-[24px] p-6 flex gap-4 print:hidden">
+            <AlertCircle className="w-6 h-6 text-red-500 shrink-0" />
+            <p className="text-sm text-red-800 font-black leading-tight text-left">{error}</p>
+          </div>
+        )}
+
+        {/* RESULTADO (Master Card) */}
+        {respuesta && (
+          <div className="relative animate-in slide-in-from-bottom-12 duration-1000 group">
+            <div className="absolute -top-4 left-10 z-10 bg-indigo-600 text-white text-[10px] font-black px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2 border-2 border-white uppercase tracking-widest print:hidden">
+              <CheckCircle2 className="w-4 h-4 text-white" /> Interpretación Lista
+            </div>
+            
+            {/* Contenedor del Reporte */}
+            <div className="bg-white rounded-[48px] p-10 md:p-14 shadow-[0_40px_80px_rgba(0,0,0,0.08)] border-2 border-indigo-50 relative overflow-hidden transition-all group-hover:shadow-[0_40px_100px_rgba(0,0,0,0.12)] print:shadow-none print:border-none print:p-0">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-50 rounded-full blur-[100px] -mr-24 -mt-24 print:hidden" />
+              <div className="relative">
+                <div className="flex items-center gap-4 mb-10 text-left">
+                  <div className="w-14 h-14 rounded-3xl bg-indigo-50 flex items-center justify-center shadow-inner print:hidden">
+                    <Sparkles className="w-8 h-8 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter leading-none">Reporte Médico IA</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">V2.4 MEDICAL ENGINE</p>
+                  </div>
                 </div>
-                <h3 className="font-medium text-text mb-1">Toma foto de tus resultados</h3>
-                <p className="text-xs text-muted mb-4">JPG, PNG o WebP · máx 5 MB</p>
-                <span className="px-4 py-2 border border-primary text-primary text-sm font-medium rounded-[10px]">
-                  Seleccionar imagen
-                </span>
+                <div className="text-slate-700 text-sm leading-[2.2] whitespace-pre-wrap font-medium text-left">
+                  {respuesta}
+                </div>
+                <div className="mt-12 pt-8 border-t border-slate-100 flex items-start gap-4">
+                  <div className="p-3 bg-slate-50 rounded-2xl text-slate-400 shrink-0 print:hidden">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <div className="text-left opacity-60">
+                    <p className="text-[11px] text-slate-500 font-black leading-relaxed uppercase tracking-widest">Aviso Legal</p>
+                    <p className="text-[10px] text-slate-400 leading-normal mt-1 font-bold">Documento generado para fines informativos por Ruta Digna.</p>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="mb-5">
-                <div className="rounded-[16px] overflow-hidden border border-slate-200 mb-3">
-                  <img src={imagenPreview} alt="Resultados" className="w-full" />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-2 text-sm border border-slate-200 rounded-[10px] text-muted"
-                  >
-                    Cambiar imagen
-                  </button>
-                  <button
-                    onClick={handleExplicar}
-                    disabled={loading}
-                    className="flex-1 py-2 text-sm bg-primary text-white rounded-[10px] font-medium disabled:opacity-50"
-                  >
-                    {loading ? "Analizando..." : "Explicar resultados"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="bg-white rounded-[16px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)] mb-5">
-            <textarea
-              className="w-full p-3 rounded-[10px] border border-slate-200 text-sm resize-none bg-white placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 min-h-[200px]"
-              value={textoResultados}
-              onChange={e => setTextoResultados(e.target.value)}
-              placeholder="Pega aquí el texto de tus resultados..."
-            />
-            <button
-              onClick={handleExplicar}
-              disabled={loading || !textoResultados.trim()}
-              className="w-full mt-4 bg-primary text-white font-medium py-3 px-4 rounded-[10px] active:bg-primary/90 transition-colors disabled:opacity-50"
+            </div>
+            
+            {/* Botón de Impresión / Guardar PDF Nativo */}
+            <button 
+              onClick={imprimirReporte}
+              className="w-full mt-8 py-6 bg-slate-950 text-white font-black rounded-[28px] shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center justify-center gap-4 active:scale-95 transition-all text-xs uppercase tracking-[0.3em] group print:hidden"
             >
-              {loading ? "Analizando..." : "Explicar resultados"}
+              <Printer className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              Imprimir o Guardar Reporte
             </button>
           </div>
         )}
-
-        {/* Loading */}
-        {loading && (
-          <div className="flex items-center gap-2 mb-4">
-            <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-            <span className="text-sm text-primary font-medium">Analizando tus resultados con IA...</span>
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-[16px] p-4 mb-4">
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-        )}
-
-        {/* Resultado del análisis */}
-        {respuesta && (
-          <div className="bg-[#F0FDF4] border border-success/30 rounded-[16px] p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-success" />
-              <span className="text-sm font-semibold text-success">Análisis de Ruta Digna</span>
-            </div>
-
-            <div className="text-sm text-text leading-relaxed whitespace-pre-wrap">
-              {respuesta}
-            </div>
-
-            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-success/20">
-              <Lock className="w-3.5 h-3.5 text-muted" />
-              <p className="text-xs text-muted">
-                {activeTab === "foto"
-                  ? "Tu imagen no fue almacenada. Procesada en memoria y descartada."
-                  : "El texto no fue almacenado. Procesado en memoria y descartado."}
-              </p>
-            </div>
-          </div>
-        )}
-
         <Footer />
       </main>
-
       <BottomNav />
     </div>
   )
