@@ -88,21 +88,6 @@ async def crear_visita(body: CrearVisitaRequest):
         }).execute()
         visita_id = result.data
 
-<<<<<<< HEAD
-=======
-        for id_estudio in body.ids_estudios:
-            delta_urgentes = 1 if body.tipo_paciente == "urgente" else 0
-            delta_con_cita = 1 if body.tipo_paciente == "con_cita" else 0
-            _actualizar_cola(
-                sb,
-                id_sucursal=body.id_sucursal,
-                id_estudio=id_estudio,
-                delta_espera=1,
-                delta_urgentes=delta_urgentes,
-                delta_con_cita=delta_con_cita,
-            )
-
->>>>>>> 45afd4c (fix: proxy API en frontend y manejo de errores de status)
         estado = sb.rpc("fn_obtener_estado_visita", {
             "p_visita_id": str(visita_id)
         }).execute()
@@ -141,31 +126,9 @@ async def avanzar_estudio(visita_id: str, body: AvanzarEstudioRequest):
     """
     try:
         sb = get_supabase()
-<<<<<<< HEAD
 
         # Obtener sucursal antes de avanzar
         id_sucursal = _get_sucursal(sb, visita_id)
-=======
-        es = sb.table("estatus_servicio").select("es_estado_final").eq("id", body.nuevo_estatus).limit(1).execute()
-        es_final = bool(es.data and es.data[0].get("es_estado_final"))
-
-        ve = sb.table("visita_estudios").select("id_estudio").eq("id", body.id_visita_estudio).limit(1).execute()
-        v = sb.table("visitas").select("id_sucursal,tipo_paciente").eq("id", visita_id).limit(1).execute()
-        if ve.data and v.data and es_final:
-            id_estudio = ve.data[0]["id_estudio"]
-            id_sucursal = v.data[0]["id_sucursal"]
-            tipo_paciente = v.data[0].get("tipo_paciente")
-            delta_urgentes = -1 if tipo_paciente == "urgente" else 0
-            delta_con_cita = -1 if tipo_paciente == "con_cita" else 0
-            _actualizar_cola(
-                sb,
-                id_sucursal=id_sucursal,
-                id_estudio=id_estudio,
-                delta_espera=-1,
-                delta_urgentes=delta_urgentes,
-                delta_con_cita=delta_con_cita,
-            )
->>>>>>> 45afd4c (fix: proxy API en frontend y manejo de errores de status)
 
         result = sb.rpc("fn_avanzar_estudio_visita", {
             "p_id_visita":         visita_id,
