@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 try:
     from backend.routers import clinicas, visitas, ia, estudios, alertas, guias
@@ -78,7 +78,7 @@ async def registrar_paciente(body: dict):
             "id":       pid,
             "nombre":   body.get("nombre", "Paciente"),
             "telefono": body.get("telefono", ""),
-            "email":    body.get("email", ""),
+            "email":    body.get("email"),
         }).execute()
         return {"paciente_id": pid, "nombre": body.get("nombre", "Paciente")}
     except Exception as e:

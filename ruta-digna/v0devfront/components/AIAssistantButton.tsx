@@ -22,11 +22,18 @@ export default function AIAssistantButton() {
   const [historial, setHistorial] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Obtener visita_id de la URL o usar el de demo
+  // Obtener visita_id de la URL o de la sesión (si existe)
   const getVisitaId = () => {
-    if (typeof window === "undefined") return "06b8efbf-67bc-426c-9523-3059d0dec059"
+    if (typeof window === "undefined") return null
     const params = new URLSearchParams(window.location.search)
-    return params.get("id") || "06b8efbf-67bc-426c-9523-3059d0dec059"
+    const fromUrl = params.get("id")
+    if (fromUrl) return fromUrl
+    try {
+      const session = JSON.parse(localStorage.getItem("ruta_session") || "null")
+      return session?.visita_id || null
+    } catch {
+      return null
+    }
   }
 
   const scrollToBottom = () => {
@@ -46,8 +53,19 @@ export default function AIAssistantButton() {
     setIsTyping(true)
 
     try {
+      const visitaId = getVisitaId()
+      if (!visitaId) {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            text: "Para ayudarte mejor necesito una visita activa. Inicia sesión y crea una visita primero.",
+            isUser: false,
+          },
+        ])
+        return
+      }
       const newHistorial = [...historial, { role: "user", content: userMsg }]
-      const response = await chatAsistente(getVisitaId(), userMsg, historial)
+      const response = await chatAsistente(visitaId, userMsg, historial)
 
       setChatMessages((prev) => [...prev, { text: response.reply, isUser: false }])
       setHistorial([

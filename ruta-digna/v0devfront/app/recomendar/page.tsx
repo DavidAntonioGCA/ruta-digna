@@ -52,18 +52,25 @@ export default function Recomendar() {
     setCreando(true)
     try {
       const session = JSON.parse(localStorage.getItem("ruta_session") || "null")
-      const paciente_id = session?.paciente_id || "00000000-0000-0000-0000-000000000001"
+      const paciente_id = session?.paciente_id
+      if (!paciente_id) {
+        setError("Primero inicia sesión para crear tu visita.")
+        router.push("/login")
+        return
+      }
       const ids_estudios = result.ids_estudios_detectados?.length
         ? result.ids_estudios_detectados
         : [2] // fallback: laboratorio
-      const id_sucursal = result.sucursal_recomendada.id_sucursal
+      const id_sucursal = result.sucursal_recomendada?.id_sucursal || 1
 
       const { visita_id } = await crearVisita({ id_paciente: paciente_id, id_sucursal, ids_estudios })
-
-      // Guardar visita_id en sesión
-      if (session) {
-        localStorage.setItem("ruta_session", JSON.stringify({ ...session, visita_id }))
+      const nextSession = {
+        paciente_id,
+        nombre: session?.nombre || "Paciente",
+        telefono: session?.telefono || "",
+        visita_id,
       }
+      localStorage.setItem("ruta_session", JSON.stringify(nextSession))
       router.push(`/antes-de-ir?id=${visita_id}`)
     } catch {
       setError("No se pudo crear la visita. Intenta de nuevo.")

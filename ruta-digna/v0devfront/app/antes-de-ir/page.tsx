@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
-import { getVisitaStatus, getEstudiosReordenables, type EstadoVisita } from "@/app/lib/api"
+import { getVisitaStatus, getEstudiosReordenables, buscarPaciente, type EstadoVisita } from "@/app/lib/api"
 
 const ESTUDIO_ICONS: Record<string, any> = {
   LABORATORIO: FlaskConical,
@@ -115,11 +115,43 @@ export default function AntesDeIr() {
   const [loading, setLoading] = useState(true)
   const [visitaId, setVisitaId] = useState("")
   const [inputId, setInputId] = useState("")
+  const [pacienteNombre, setPacienteNombre] = useState("Paciente")
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const id = params.get('id') || '06b8efbf-67bc-426c-9523-3059d0dec059'
-    setVisitaId(id); setInputId(id)
+    const resolveVisitaId = async () => {
+      const params = new URLSearchParams(window.location.search)
+      let id = params.get("id")
+
+      try {
+        const session = JSON.parse(localStorage.getItem("ruta_session") || "null")
+        if (session?.nombre) {
+          setPacienteNombre(session.nombre)
+        }
+        if (!id && session?.visita_id) {
+          id = session.visita_id
+        }
+
+        if (!id && session?.telefono) {
+          const data = await buscarPaciente(session.telefono)
+          if (data?.encontrado && data?.visita_id) {
+            id = data.visita_id
+            localStorage.setItem("ruta_session", JSON.stringify({ ...session, visita_id: id }))
+          }
+        }
+
+      } catch (e) {
+        console.error("Error reading session", e)
+      }
+
+      if (id) {
+        setVisitaId(id)
+        setInputId(id)
+      } else {
+        setLoading(false)
+      }
+    }
+
+    resolveVisitaId()
   }, [])
 
   const fetchData = useCallback(async () => {
@@ -130,7 +162,11 @@ export default function AntesDeIr() {
         getEstudiosReordenables(visitaId).catch(() => null),
       ])
       setVisita(statusData); setReordenables(reordData)
-    } catch { /* Error handle */ } finally { setLoading(false) }
+    } catch (e) {
+      console.error("Error fetching data", e)
+    } finally { 
+      setLoading(false) 
+    }
   }, [visitaId])
 
   useEffect(() => {
@@ -140,22 +176,33 @@ export default function AntesDeIr() {
 
   return (
     <div className="min-h-screen bg-[#F9FBFF] pb-24">
-      <header className="bg-gradient-to-r from-blue-700 to-blue-500 px-6 pt-12 pb-20 rounded-b-[40px] shadow-lg relative overflow-hidden text-left">
-        <div className="absolute top-0 right-0 p-10 opacity-10">
-          <CalendarCheck className="w-32 h-32 text-white" />
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+            <CalendarCheck className="w-5 h-5" />
+          </div>
+          <div className="text-left select-none">
+            <h1 className="text-xl font-black bg-gradient-to-br from-blue-600 to-emerald-500 bg-clip-text text-transparent tracking-tight">
+              Antes de Ir
+            </h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-400">Mi Preparación</p>
+          </div>
         </div>
-        <div className="relative flex justify-between items-start">
-           <div>
-              <h1 className="text-3xl font-black text-white tracking-tighter uppercase">Mi Preparación</h1>
-              <p className="text-blue-100 text-sm font-bold mt-1 uppercase tracking-widest opacity-80">Ruta Digna IA</p>
-           </div>
-           <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/30">
-              <Sparkles className="w-6 h-6 text-white" />
-           </div>
-        </div>
+        <Sparkles className="w-5 h-5 text-blue-500/30" />
       </header>
 
-      <main className="px-6 -mt-12 space-y-6 max-w-2xl mx-auto pb-10">
+      <main className="px-6 py-8 space-y-6 max-w-2xl mx-auto pb-10">
+        {!loading && !visita && (
+          <div className="bg-white rounded-[32px] p-10 text-center shadow-xl shadow-blue-900/5 border border-slate-50">
+            <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">No hay visita activa</h2>
+            <p className="text-sm font-medium text-slate-500 mb-6">Parece que no tienes ninguna visita en curso. Regresa a inicio para crear una nueva.</p>
+            <Link href="/recomendar">
+              <button className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl text-sm transition-all active:scale-95">Ir a Crear Visita</button>
+            </Link>
+          </div>
+        )}
+
         {visita && (
           <div className="bg-white rounded-[32px] p-6 shadow-xl shadow-blue-900/5 border border-slate-50 animate-in slide-in-from-bottom-4">
              <div className="flex items-center gap-4 mb-4 text-left">
@@ -164,7 +211,7 @@ export default function AntesDeIr() {
                 </div>
                 <div>
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Paciente</p>
-                   <p className="text-lg font-black text-slate-800 leading-none">{visita.paciente}</p>
+                   <p className="text-lg font-black text-slate-800 leading-none">{visita?.paciente || pacienteNombre}</p>
                 </div>
              </div>
              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-2xl">
@@ -231,7 +278,7 @@ export default function AntesDeIr() {
             </div>
 
             {/* BOTÓN AL FINAL DEL CONTENIDO (Ya no flota) */}
-            <Link href="/tracking">
+            <Link href={visitaId ? `/tracking?id=${visitaId}` : "/tracking"}>
               <button className="w-full bg-slate-900 hover:bg-black text-white font-black py-6 rounded-[28px] shadow-xl flex items-center justify-center gap-4 transition-all active:scale-95 group uppercase text-xs tracking-[0.2em]">
                 ¡Todo listo, ir al Tracking!
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-2 transition-transform text-blue-400" />

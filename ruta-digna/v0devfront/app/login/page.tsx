@@ -15,6 +15,7 @@ export default function Login() {
 
   const saveSession = (paciente_id: string, nombreP: string, visita_id: string | null) => {
     localStorage.setItem("ruta_session", JSON.stringify({ paciente_id, nombre: nombreP, telefono, visita_id }))
+    document.cookie = "ruta_auth=1; path=/; max-age=2592000; samesite=lax"
   }
 
   const handleLogin = async () => {
@@ -55,40 +56,30 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-900">
-
-      {/* ── HERO ── */}
-      <div className="relative bg-gradient-to-b from-[#0A1628] via-blue-950 to-slate-900 px-8 pt-20 pb-24 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-10 left-1/2 -translate-x-1/2 w-80 h-80 bg-blue-600 rounded-full blur-[140px] opacity-10" />
-          <div className="absolute bottom-0 right-0 w-48 h-48 bg-indigo-500 rounded-full blur-[100px] opacity-10" />
-        </div>
-
-        <div className="relative max-w-md mx-auto">
-          {/* Logo */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-11 h-11 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/50">
-              <Activity className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-white font-black tracking-tighter text-lg leading-none">RUTA DIGNA</p>
-              <p className="text-blue-400 text-[9px] font-bold uppercase tracking-[0.3em]">by Salud Digna · IA</p>
-            </div>
+    <div className="min-h-screen bg-[#F8FAFC] pb-24 text-slate-900">
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
+            <Activity className="w-5 h-5 text-blue-600" />
           </div>
-
-          {/* Headline */}
-          <h1 className="text-5xl font-black text-white tracking-tighter leading-[1.05] mb-4">
-            Tu visita,<br />
-            <span className="text-blue-400">sin esperas.</span>
-          </h1>
-          <p className="text-slate-400 text-sm font-medium leading-relaxed">
-            Optimizamos tu recorrido en la clínica con inteligencia artificial.
-          </p>
+          <div className="select-none text-left">
+            <h1 className="text-xl font-black bg-gradient-to-br from-blue-600 to-emerald-500 bg-clip-text text-transparent tracking-tight">
+              Ruta Digna
+            </h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-400">Acceso Paciente</p>
+          </div>
         </div>
-      </div>
+        <Sparkles className="w-5 h-5 text-blue-500/30" />
+      </header>
 
-      {/* ── FORM ── */}
-      <div className="flex-1 bg-[#F8FAFC] rounded-t-[44px] -mt-10 px-6 pt-10 pb-16 max-w-md mx-auto w-full">
+      <main className="max-w-md mx-auto px-6 py-8">
+        <div className="bg-white rounded-[32px] p-6 shadow-xl shadow-blue-900/5 border border-slate-50">
+          <div className="mb-6 text-left">
+            <h2 className="text-2xl font-black tracking-tight text-slate-900">Tu visita, sin esperas</h2>
+            <p className="text-sm text-slate-500 font-medium mt-1">
+              Inicia sesión o crea tu cuenta para continuar.
+            </p>
+          </div>
 
         {/* Tabs */}
         <div className="flex bg-slate-100 p-1 rounded-[18px] mb-8">
@@ -136,10 +127,15 @@ export default function Login() {
               <input
                 type="tel"
                 value={telefono}
-                onChange={e => setTelefono(e.target.value)}
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '')
+                  setTelefono(val)
+                }}
                 onKeyDown={onKey}
                 placeholder="Ej: 6671234567"
                 className="flex-1 text-slate-800 font-bold outline-none bg-transparent placeholder:text-slate-300 placeholder:font-normal text-base"
+                inputMode="numeric"
+                pattern="[0-9]*"
               />
             </div>
           </div>
@@ -176,21 +172,21 @@ export default function Login() {
           </button>
         </div>
 
-        {/* Footer */}
-        <div className="mt-10 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-slate-200" />
-            <Sparkles className="w-3.5 h-3.5 text-slate-300" />
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-          <div className="flex items-center justify-center gap-2 text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-slate-300" />
-            <p className="text-xs font-medium text-center">
-              Tus datos son privados · Salud Digna · Talent Land 2026
-            </p>
+          <div className="mt-10 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-slate-200" />
+              <Sparkles className="w-3.5 h-3.5 text-slate-300" />
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+            <div className="flex items-center justify-center gap-2 text-slate-400">
+              <ShieldCheck className="w-4 h-4 text-slate-300" />
+              <p className="text-xs font-medium text-center">
+                Tus datos son privados · Salud Digna · Talent Land 2026
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

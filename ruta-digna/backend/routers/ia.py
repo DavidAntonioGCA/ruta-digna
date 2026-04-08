@@ -36,9 +36,21 @@ async def recomendar_sucursal(body: RecomendarRequest):
 
         # Paso 1: Claude extrae estudios y zona del texto libre
         raw = await call_claude(PROMPT_EXTRACTOR, body.mensaje, max_tokens=300)
-        print("Respuesta raw de Claude:", raw) # <-- DEBUG: Qué devuelve Claude realmente
+        
+        # Limpiar respuesta raw de Claude por si envía backticks de markdown
+        raw_clean = raw.strip()
+        if raw_clean.startswith("```json"):
+            raw_clean = raw_clean[7:]
+        elif raw_clean.startswith("```"):
+            raw_clean = raw_clean[3:]
+        if raw_clean.endswith("```"):
+            raw_clean = raw_clean[:-3]
+        raw_clean = raw_clean.strip()
+        
+        print("Respuesta raw de Claude limpia:", raw_clean) # <-- DEBUG
+        
         try:
-            extraccion = json.loads(raw)
+            extraccion = json.loads(raw_clean)
         except json.JSONDecodeError:
             extraccion = {"estudios_mencionados": [], "zona_o_referencia": None}
 
@@ -69,6 +81,10 @@ async def recomendar_sucursal(body: RecomendarRequest):
                     "SANGRE": "LABORATORIO",
                     "LAB": "LABORATORIO",
                     "ORINA": "LABORATORIO",
+                    "EGO": "LABORATORIO",
+                    "BH": "LABORATORIO",
+                    "BIOMETRIA": "LABORATORIO",
+                    "QUIMICA SANGUINEA": "LABORATORIO",
                     "RAYOS": "RAYOS X",
                     "RADIOGRAFIA": "RAYOS X",
                     "RADIOGRAFÍA": "RAYOS X",
@@ -102,59 +118,20 @@ async def recomendar_sucursal(body: RecomendarRequest):
                         ids_estudios.append(-2)
 
         if not ids_estudios:
-            # Fallback: devolver todas las sucursales activas sin filtro de estudio
-            result = sb.table("sucursales").select(
-                "id,nombre,direccion,ciudad"
-            ).eq("activa", True).limit(5).execute()
-            return {
-                "sucursal_recomendada": result.data[0] if result.data else None,
-                "alternativas":         result.data[1:] if result.data else [],
-                "estudios_detectados":  estudios_detectados,
-                "ids_estudios_detectados": [],
-                "orden_sugerido":       [],
-                "advertencia":          "No pude identificar los estudios. Mostrando clínicas cercanas."
-            }
+            # Fallback: si no hay estudios, forzamos Laboratorio (ID 2)
+            ids_estudios = [2]
+            estudios_detectados = ["Laboratorio General (Predeterminado)"]
 
-        # Paso 3: Calcular score y recomendar sucursales (Lógica movida al backend para evitar error 1101 de PostgREST)
-        import math
-        
-        def calc_dist(lat1, lon1, lat2, lon2):
-            if not all([lat1, lon1, lat2, lon2]): return 999.0
-            # Haversine simple
-            return math.sqrt(((lat2 - lat1) * 111.0)**2 + ((lon2 - lon1) * 111.0 * math.cos(math.radians(lat1)))**2)
-
-        # 3.1 Traer todas las sucursales activas
-        res_sucursales = sb.table("sucursales").select("id,nombre,direccion,ciudad,latitud,longitud").eq("activa", True).execute()
-        todas_sucursales = res_sucursales.data or []
-        
-        sucursales_validas = []
-        for s in todas_sucursales:
-            # 3.2 Verificar que la sucursal tenga TODOS los estudios
-            res_consultorios = sb.table("consultorios_por_sucursal").select("id_estudio").eq("id_sucursal", s["id"]).in_("id_estudio", ids_estudios).execute()
-            estudios_disp = [c["id_estudio"] for c in (res_consultorios.data or [])]
-            
-            if len(set(estudios_disp)) == len(ids_estudios):
-                # 3.3 Calcular tiempo de espera (aproximado, asumiendo 20 min base)
-                # (Para la demo, calculamos 20 min por estudio + un random basado en id para variar)
-                tiempo_total = len(ids_estudios) * 20 + (s["id"] % 5) * 5
-                
-                # 3.4 Calcular distancia y score
-                dist = calc_dist(body.lat or 0, body.lon or 0, s.get("latitud"), s.get("longitud"))
-                score = round((tiempo_total * 0.6) + (dist * 0.4), 2)
-                
-                sucursales_validas.append({
-                    "id_sucursal": s["id"],
-                    "nombre_sucursal": s["nombre"],
-                    "direccion": s.get("direccion", ""),
-                    "ciudad": s.get("ciudad", ""),
-                    "tiempo_total_min": tiempo_total,
-                    "score": score,
-                    "estudios_disponibles": len(estudios_disp)
-                })
-
-        # 3.5 Ordenar por score
-        sucursales_validas.sort(key=lambda x: x["score"])
-        sucursales = sucursales_validas[:5]
+        # Paso 3: Recomendar sucursales con score REAL desde la DB
+        # - tiempo_total_min usa fn_calcular_tiempo_espera (colas + consultorios + históricos)
+        # - score combina tiempo (0.6) + distancia (0.4)
+        rec = sb.rpc("fn_recomendar_sucursales", {
+            "p_ids_estudios": ids_estudios,
+            "p_lat_usuario": body.lat,
+            "p_lon_usuario": body.lon,
+            "p_limite": 5
+        }).execute()
+        sucursales = rec.data or []
         if not sucursales:
             raise HTTPException(404, "No hay sucursales disponibles para esos estudios")
 

@@ -676,16 +676,7 @@ export default function App() {
                     />
                   ))
                 : (
-                  <div>
-                    <p className="text-xs text-gray-400 mb-2">
-                      Sin visitas activas en la vista — mostrando visita de demo:
-                    </p>
-                    <VisitaDemoControl
-                      advancing={advancing}
-                      onAvanzar={handleAvanzar}
-                      onChangePriority={handleChangePriority}
-                    />
-                  </div>
+                  <p className="text-sm text-gray-400 text-center py-10">Sin visitas activas</p>
                 )
               }
             </div>

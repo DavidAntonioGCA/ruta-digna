@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
-import { getVisitaStatus, chatAsistente, type EstadoVisita, type EstudioVisita } from "@/app/lib/api"
+import { getVisitaStatus, chatAsistente, buscarPaciente, type EstadoVisita, type EstudioVisita } from "@/app/lib/api"
 
 // Temas visuales por tipo de estudio
 const ESTUDIO_THEME: Record<string, { icon: any, color: string, bg: string }> = {
@@ -104,7 +104,7 @@ function EstudioActual({ estudio, visitaId }: { estudio: EstudioVisita; visitaId
              </div>
              <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Tu Turno</p>
-                <p className="text-lg font-black text-slate-800">#{Math.floor(Math.random() * 5) + 1}</p>
+                <p className="text-lg font-black text-slate-800">—</p>
              </div>
           </div>
           <div className="mt-4 bg-blue-600 rounded-3xl p-5 text-white">
@@ -135,17 +135,54 @@ export default function Tracking() {
   const [loading, setLoading] = useState(true)
   const [visitaId, setVisitaId] = useState("")
   const [inputId, setInputId] = useState("")
+  const [pacienteNombre, setPacienteNombre] = useState("Paciente")
 
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('id') || '06b8efbf-67bc-426c-9523-3059d0dec059'
-    setVisitaId(id); setInputId(id)
+    const resolveVisitaId = async () => {
+      let id = new URLSearchParams(window.location.search).get("id")
+
+      try {
+        const session = JSON.parse(localStorage.getItem("ruta_session") || "null")
+        if (session?.nombre) {
+          setPacienteNombre(session.nombre)
+        }
+        if (!id && session?.visita_id) {
+          id = session.visita_id
+        }
+
+        if (!id && session?.telefono) {
+          const data = await buscarPaciente(session.telefono)
+          if (data?.encontrado && data?.visita_id) {
+            id = data.visita_id
+            localStorage.setItem("ruta_session", JSON.stringify({ ...session, visita_id: id }))
+          }
+        }
+
+      } catch (e) {
+        console.error("Error reading session", e)
+      }
+
+      if (id) {
+        setVisitaId(id)
+        setInputId(id)
+      } else {
+        setLoading(false)
+      }
+    }
+
+    resolveVisitaId()
   }, [])
 
   const fetchStatus = useCallback(async () => {
     if (!visitaId) return
     try {
-      const data = await getVisitaStatus(visitaId); setVisita(data)
-    } catch { } finally { setLoading(false) }
+      const data = await getVisitaStatus(visitaId); 
+      setVisita(data)
+    } catch (e) {
+      console.error("Error fetching status", e)
+    } finally { 
+      setLoading(false) 
+    }
   }, [visitaId])
 
   useEffect(() => {
@@ -156,25 +193,43 @@ export default function Tracking() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-24 text-slate-900">
       {/* HEADER */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100 px-6 py-6 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
-            <User className="w-6 h-6 text-blue-600" />
+          <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
+            <User className="w-5 h-5 text-blue-600" />
           </div>
           <div className="text-left">
-            <h1 className="text-xl font-black tracking-tighter uppercase leading-none">{visita?.paciente || "Paciente"}</h1>
+            <h1 className="text-xl font-black tracking-tighter uppercase leading-none">{visita?.paciente || pacienteNombre}</h1>
             <div className="flex items-center gap-2 mt-1">
                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100 uppercase tracking-tighter">Verificado</span>
-               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: {visitaId.slice(0, 8)}</span>
+               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: {visitaId ? visitaId.slice(0, 8) : "---"}</span>
             </div>
           </div>
         </div>
-        <div className="w-10 h-10 rounded-2xl bg-white border border-slate-100 flex items-center justify-center shadow-sm shrink-0">
+        <div className="w-9 h-9 rounded-2xl bg-white border border-slate-100 flex items-center justify-center shadow-sm shrink-0">
            <Calendar className="w-5 h-5 text-slate-400" />
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">
+        {!loading && !visita && (
+          <div className="bg-white rounded-[32px] p-10 text-center shadow-xl shadow-blue-900/5 border border-slate-50">
+            <AlertTriangle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">No hay visita activa</h2>
+            <p className="text-sm font-medium text-slate-500 mb-6">No encontramos datos de tu visita. Es posible que haya concluido o no hayas iniciado el proceso.</p>
+            <Link href="/recomendar">
+              <button className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl text-sm transition-all active:scale-95">Crear Nueva Visita</button>
+            </Link>
+          </div>
+        )}
+
+        {loading && (
+          <div className="py-24 text-center flex flex-col items-center gap-4">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-black uppercase text-slate-300 tracking-[0.2em]">Cargando Tracking...</p>
+          </div>
+        )}
+
         {visita && (
           <div className="space-y-10">
             <AlertasPaciente alertas={visita.alertas_sucursal} />
@@ -190,7 +245,7 @@ export default function Tracking() {
                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Tiempo de Estancia Restante</p>
                   </div>
                   <div className="flex items-baseline gap-3">
-                    <span className="text-7xl font-black tracking-tighter tabular-nums">~{Math.max(visita.tiempo_espera_total_min - 5, 2)}</span>
+                    <span className="text-7xl font-black tracking-tighter tabular-nums">~{visita.tiempo_espera_total_min}</span>
                     <span className="text-2xl font-black text-slate-500 uppercase">Min</span>
                   </div>
                 </div>

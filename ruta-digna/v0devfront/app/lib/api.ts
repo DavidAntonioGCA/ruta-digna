@@ -1,8 +1,12 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '/api').replace(/\/+$/, '')
+
+function joinUrl(base: string, path: string) {
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    const res = await fetch(joinUrl(API_URL, path), {
       headers: { 'Content-Type': 'application/json' },
       ...options,
     })
@@ -60,6 +64,7 @@ export const crearVisita = (body: {
 })
 export const getGuiaVisita = (visitaId: string) => apiFetch<any[]>(`/guias/visita/${visitaId}`)
 export const getEstudiosReordenables = (visitaId: string) => apiFetch<any>(`/visitas/${visitaId}/estudios-reordenables`)
+export const getVisitasActivas = () => apiFetch<Array<{ visita_id: string }>>(`/visitas/activas`)
 
 export interface RecomendacionResponse {
   sucursal_recomendada: { id_sucursal: number; nombre_sucursal: string; direccion: string; ciudad: string; tiempo_total_min: number; score: number; estudios_disponibles: number }
