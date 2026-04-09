@@ -201,10 +201,9 @@ async def recomendar_sucursal(body: RecomendarRequest):
         # 1. Mensaje muy corto (<3 palabras) → baja
         # 2. Claude reportó baja → baja
         # 3. Ningún estudio tuvo coincidencia directa (todo pasó por sinónimos) → baja
-        palabras_mensaje = body.mensaje.strip().split()
         hay_directa = len(ids_con_coincidencia_directa) > 0
         confianza: str
-        if confianza_claude == "baja" or len(palabras_mensaje) < 3 or not hay_directa:
+        if confianza_claude == "baja" or not hay_directa:
             confianza = "baja"
         else:
             confianza = "alta"

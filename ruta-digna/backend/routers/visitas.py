@@ -9,6 +9,43 @@ except ImportError:
 
 router = APIRouter()
 
+
+def _enrich_estado(sb, estado: dict) -> dict:
+    """
+    Garantiza que cada elemento de 'estudios' tenga 'id_visita_estudio'.
+    Si la función de BD ya lo devuelve, no hace nada. Si no, lo obtiene
+    con una consulta directa a visita_estudios.
+    """
+    if not estado or not isinstance(estado, dict):
+        return estado
+    estudios = estado.get("estudios") or []
+    if not estudios:
+        return estado
+    # ¿Ya tiene id_visita_estudio en todos los registros?
+    if all(e.get("id_visita_estudio") for e in estudios):
+        return estado
+    # Consulta directa para obtener ve.id por visita + estudio + orden
+    visita_id = estado.get("visita_id")
+    if not visita_id:
+        return estado
+    try:
+        ve_rows = sb.table("visita_estudios").select(
+            "id, id_estudio, orden_atencion, es_estudio_actual"
+        ).eq("id_visita", visita_id).order("orden_atencion").execute()
+        ve_map = {
+            (r["id_estudio"], r["orden_atencion"]): r
+            for r in (ve_rows.data or [])
+        }
+        for e in estudios:
+            key = (e.get("id_estudio"), e.get("orden"))
+            row = ve_map.get(key)
+            if row and not e.get("id_visita_estudio"):
+                e["id_visita_estudio"] = row["id"]
+    except Exception:
+        pass
+    return estado
+
+
 def _actualizar_cola(sb, *, id_sucursal: int, id_estudio: int, delta_espera: int = 0, delta_atencion: int = 0, delta_urgentes: int = 0, delta_con_cita: int = 0):
     existing = sb.table("colas_en_tiempo_real") \
         .select("pacientes_en_espera,pacientes_en_atencion,pacientes_urgentes,pacientes_con_cita") \
@@ -61,7 +98,7 @@ async def get_visita_status(visita_id: str):
         }).execute()
         if not result.data:
             raise HTTPException(404, f"Visita {visita_id} no encontrada")
-        return result.data
+        return _enrich_estado(sb, result.data)
     except RuntimeError as e:
         raise HTTPException(503, str(e))
     except HTTPException:
@@ -97,7 +134,7 @@ async def crear_visita(body: CrearVisitaRequest):
 
         return {
             "visita_id": str(visita_id),
-            "estado":    estado.data
+            "estado":    _enrich_estado(sb, estado.data)
         }
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -136,19 +173,20 @@ async def get_visitas_especialista(estudio: str, id_sucursal: int | None = None)
             return []
         id_estudios = [e["id"] for e in est_r.data]
 
-        # 2. Buscar visita_estudios cuyo estudio ACTUAL sea el del especialista
-        #    (misma lógica que la pantalla pública: es_estudio_actual = True)
+        # 2. Buscar visita_estudios del área del especialista.
+        #    Se trae id_estatus para filtrar en Python (más robusto que encadenar .neq en PostgREST).
+        #    Un paciente cuyo estudio ya llegó a VERIFICADO (12) no debe aparecer en la cola activa.
         ve_r = (
             sb.table("visita_estudios")
-            .select("id_visita")
+            .select("id_visita, id_estatus, es_estudio_actual")
             .in_("id_estudio", id_estudios)
-            .eq("es_estudio_actual", True)
             .execute()
         )
-        if not ve_r.data:
-            return []
-
-        visita_ids = list({r["id_visita"] for r in ve_r.data})
+        # Solo visitas donde el estudio es actual Y no está verificado
+        visita_ids = list({
+            r["id_visita"] for r in (ve_r.data or [])
+            if r.get("es_estudio_actual") and r.get("id_estatus") != 12
+        })
 
         # 3. Filtrar: solo visitas en_proceso y, si aplica, de la sucursal del especialista
         visitas_q = (
@@ -176,7 +214,7 @@ async def get_visitas_especialista(estudio: str, id_sucursal: int | None = None)
                 estado = sb.rpc("fn_obtener_estado_visita",
                                 {"p_visita_id": vid}).execute()
                 if estado.data:
-                    visitas.append(estado.data)
+                    visitas.append(_enrich_estado(sb, estado.data))
             except Exception:
                 pass
 
@@ -260,28 +298,75 @@ async def get_visitas_atendidas(estudio: str, id_sucursal: int | None = None):
 async def avanzar_estudio(visita_id: str, body: AvanzarEstudioRequest):
     """
     Avanza el estado de un estudio en la visita.
-    Flujo demo: 1(PAGADO) → 9(INICIO_TOMA) → 10(FIN_TOMA) → 12(VERIFICADO)
-    Sincroniza las colas tras el avance.
+    Flujo: 1(PAGADO) → 9(INICIO_TOMA) → 10(FIN_TOMA) → 12(VERIFICADO)
+
+    Hace los updates directamente en Python para evitar depender de funciones
+    de BD que puedan fallar (fn_avanzar_estudio_visita llama fn_obtener_estado_visita
+    que a su vez necesita fn_obtener_alertas_sucursal — si alguna falta, rollback total).
     """
     try:
         sb = get_supabase()
-
-        # Obtener sucursal antes de avanzar
         id_sucursal = _get_sucursal(sb, visita_id)
 
-        result = sb.rpc("fn_avanzar_estudio_visita", {
-            "p_id_visita":         visita_id,
-            "p_id_visita_estudio": body.id_visita_estudio,
-            "p_nuevo_estatus":     body.nuevo_estatus,
-            "p_nuevo_paso":        body.nuevo_paso,
-            "p_nuevo_progreso":    body.nuevo_progreso
-        }).execute()
+        # 1. Verificar que el visita_estudio existe y pertenece a esta visita
+        ve_r = sb.table("visita_estudios").select("id, orden_atencion").eq("id", body.id_visita_estudio).eq("id_visita", visita_id).execute()
+        if not ve_r.data:
+            raise HTTPException(404, f"visita_estudio {body.id_visita_estudio} no encontrado en visita {visita_id}")
+        orden_actual = ve_r.data[0]["orden_atencion"]
 
-        # Sincronizar colas: el avance puede completar un estudio
+        # 2. Actualizar el estudio
+        sb.table("visita_estudios").update({
+            "id_estatus":   body.nuevo_estatus,
+            "paso_actual":  body.nuevo_paso,
+            "progreso_pct": body.nuevo_progreso,
+        }).eq("id", body.id_visita_estudio).execute()
+
+        # 3. Si el estatus es final (VERIFICADO=12), activar el siguiente estudio
+        es_final_r = sb.table("estatus_servicio").select("es_estado_final").eq("id", body.nuevo_estatus).single().execute()
+        es_final = bool(es_final_r.data and es_final_r.data.get("es_estado_final"))
+
+        if es_final:
+            # Desmarcar actual
+            sb.table("visita_estudios").update({"es_estudio_actual": False}).eq("id", body.id_visita_estudio).execute()
+
+            # Buscar siguiente estudio en la secuencia
+            next_r = sb.table("visita_estudios").select("id, id_estudio").eq("id_visita", visita_id).gt("orden_atencion", orden_actual).order("orden_atencion").limit(1).execute()
+
+            if next_r.data:
+                # Activar siguiente
+                siguiente_ve = next_r.data[0]
+                sb.table("visita_estudios").update({"es_estudio_actual": True}).eq("id", siguiente_ve["id"]).execute()
+
+                # Recalcular progreso general
+                todos_r = sb.table("visita_estudios").select("id_estatus").eq("id_visita", visita_id).execute()
+                final_ids_r = sb.table("estatus_servicio").select("id").eq("es_estado_final", True).execute()
+                final_ids = {r["id"] for r in (final_ids_r.data or [])}
+                total = len(todos_r.data or [])
+                completados = sum(1 for r in (todos_r.data or []) if r["id_estatus"] in final_ids)
+                progreso = round((completados / total) * 100) if total else 0
+
+                sb.table("visitas").update({
+                    "id_estudio_actual":    siguiente_ve["id_estudio"],
+                    "progreso_general_pct": progreso,
+                    "estatus":              "en_proceso",
+                }).eq("id", visita_id).execute()
+            else:
+                # No hay más estudios — visita completada
+                sb.table("visitas").update({
+                    "id_estudio_actual":    None,
+                    "progreso_general_pct": 100,
+                    "estatus":              "completada",
+                    "timestamp_fin_visita": datetime.utcnow().isoformat(),
+                }).eq("id", visita_id).execute()
+
+        # 4. Sincronizar colas
         if id_sucursal:
             _sincronizar_colas(sb, id_sucursal)
 
-        return result.data
+        return {"ok": True, "nuevo_estatus": body.nuevo_estatus, "visita_id": visita_id}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -356,15 +441,23 @@ async def get_pantalla_sucursal(id_sucursal: int):
         visita_ids  = [v["id"] for v in visitas_list]
         visitas_map = {v["id"]: v for v in visitas_list}
 
-        # ── Estudio actual + estatus por visita ──────────────────────
+        # ── Estudio activo por visita: busca el primer estudio con PAGADO(1) o INICIO_TOMA(9)
+        # No depende de es_estudio_actual para mayor robustez ante desincronizaciones.
         ve_r = (
             sb.table("visita_estudios")
-            .select("id, id_visita, id_estudio, id_estatus")
+            .select("id, id_visita, id_estudio, id_estatus, orden_atencion")
             .in_("id_visita", visita_ids)
-            .eq("es_estudio_actual", True)
+            .in_("id_estatus", [1, 9])
+            .order("orden_atencion")
             .execute()
         )
-        ve_list = ve_r.data or []
+        # Por cada visita, quedarse solo con el estudio de menor orden (el actual)
+        ve_map: dict[str, dict] = {}
+        for ve in (ve_r.data or []):
+            if ve["id_visita"] not in ve_map:
+                ve_map[ve["id_visita"]] = ve
+
+        ve_list = list(ve_map.values())
 
         # ── Nombres de estudios ──────────────────────────────────────
         estudio_ids = list({ve["id_estudio"] for ve in ve_list})
@@ -388,19 +481,15 @@ async def get_pantalla_sucursal(id_sucursal: int):
             "MASTOGRAFÍA": "MAS", "DENSITOMETRÍA": "DEN",
         }
 
-        # ── Construir códigos de turno secuenciales por área ─────────
+        # ── Paso 1: asignar códigos de turno por orden de llegada (fijos) ──
+        # Los números no cambian aunque la prioridad del paciente cambie después.
         estudio_counters: dict[int, int] = {}
-        llamando: list[dict] = []
-        en_espera: list[dict] = []
-
-        ve_map = {ve["id_visita"]: ve for ve in ve_list}
+        entries: list[dict] = []
 
         PRIO = {"urgente": 1, "embarazada": 2, "adulto_mayor": 3,
                 "discapacidad": 4, "con_cita": 5, "sin_cita": 6}
 
-        for visita in sorted(visitas_list, key=lambda v: (
-            PRIO.get(v["tipo_paciente"], 6), v["timestamp_llegada"]
-        )):
+        for visita in sorted(visitas_list, key=lambda v: v["timestamp_llegada"]):
             ve = ve_map.get(visita["id"])
             if not ve:
                 continue
@@ -408,13 +497,8 @@ async def get_pantalla_sucursal(id_sucursal: int):
             id_estudio  = ve["id_estudio"]
             id_estatus  = ve["id_estatus"]
 
-            # Solo mostramos PAGADO(1) y INICIO_TOMA(9)
-            if id_estatus not in (1, 9):
-                continue
-
             nombre_estudio = estudios_map.get(id_estudio, "ÁREA")
             nombre_upper   = nombre_estudio.upper()
-            # Abreviación de 3 letras conocida, o primeras 3 letras del nombre real
             abrev = next(
                 (v for k, v in AREA_ABREV.items() if k in nombre_upper),
                 nombre_upper[:3].strip() if nombre_upper else "ARE",
@@ -425,12 +509,10 @@ async def get_pantalla_sucursal(id_sucursal: int):
             turno_codigo = f"{abrev}-{seq:03d}"
 
             guia = guias_map.get(id_estudio, {})
-
-            # Nombre del paciente desde el join
             pac_data   = visita.get("pacientes") or {}
             pac_nombre = pac_data.get("nombre", "") if isinstance(pac_data, dict) else ""
 
-            entry = {
+            entries.append({
                 "turno_codigo":      turno_codigo,
                 "ve_id":             ve["id"],
                 "nombre_paciente":   pac_nombre,
@@ -441,9 +523,17 @@ async def get_pantalla_sucursal(id_sucursal: int):
                 "piso":              guia.get("piso"),
                 "instrucciones":     guia.get("instrucciones", ""),
                 "timestamp_llegada": visita["timestamp_llegada"],
-            }
+                "_estatus":          id_estatus,
+            })
 
-            if id_estatus == 9:
+        # ── Paso 2: ordenar por prioridad para determinar quién se atiende primero ──
+        entries.sort(key=lambda e: (PRIO.get(e["tipo_paciente"], 6), e["timestamp_llegada"]))
+
+        llamando: list[dict] = []
+        en_espera: list[dict] = []
+        for entry in entries:
+            estatus = entry.pop("_estatus")
+            if estatus == 9:
                 llamando.append(entry)
             else:
                 en_espera.append(entry)

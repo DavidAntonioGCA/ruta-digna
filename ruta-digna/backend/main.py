@@ -248,14 +248,18 @@ async def get_cola_paciente(visita_id: str):
         sb = get_supabase()
 
         # Obtener visita actual
-        v = sb.table("visitas").select("id_sucursal, tipo_paciente, timestamp_llegada, id_estudio_actual").eq("id", visita_id).single().execute()
+        v = sb.table("visitas").select("id_sucursal, tipo_paciente, timestamp_llegada").eq("id", visita_id).single().execute()
         if not v.data:
             raise HTTPException(404, "Visita no encontrada")
 
         id_sucursal = v.data["id_sucursal"]
-        id_estudio  = v.data.get("id_estudio_actual")
         tipo        = v.data["tipo_paciente"]
         llegada     = v.data["timestamp_llegada"]
+
+        # Leer el estudio actual desde visita_estudios (es_estudio_actual=True),
+        # ya que fn_avanzar_estudio_visita actualiza ese campo y NO visitas.id_estudio_actual.
+        ve_actual_r = sb.table("visita_estudios").select("id_estudio").eq("id_visita", visita_id).eq("es_estudio_actual", True).limit(1).execute()
+        id_estudio = ve_actual_r.data[0]["id_estudio"] if ve_actual_r.data else None
 
         if not id_estudio:
             return {"posicion": None, "delante": [], "detras": []}
@@ -273,8 +277,8 @@ async def get_cola_paciente(visita_id: str):
             "id, tipo_paciente, timestamp_llegada"
         ).eq("id_sucursal", id_sucursal).eq("estatus", "en_proceso").neq("id", visita_id).execute()
 
-        # Filtrar los que tienen este estudio pendiente
-        ve_r = sb.from_("visita_estudios").select("id_visita, id_estudio").eq("id_estudio", id_estudio).execute()
+        # Solo pacientes que tienen este estudio como ACTUAL (no los que ya lo completaron)
+        ve_r = sb.from_("visita_estudios").select("id_visita").eq("id_estudio", id_estudio).eq("es_estudio_actual", True).execute()
         visitas_en_estudio = {row["id_visita"] for row in (ve_r.data or [])}
 
         candidatos = [

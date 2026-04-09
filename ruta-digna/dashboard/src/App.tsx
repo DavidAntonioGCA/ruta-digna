@@ -207,10 +207,10 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
         const siguiente = getSiguienteEstatus(estatusId)
         if (!siguiente) return null
         return (
-          <button disabled={advancing !== null}
+          <button disabled={advancing === visita.visita_id}
             onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
             className="w-full text-xs bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium">
-            {advancing === actual.id_visita_estudio ? 'Avanzando...' : siguiente.label}
+            {advancing === visita.visita_id ? 'Avanzando...' : siguiente.label}
           </button>
         )
       })()}
@@ -341,16 +341,12 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
         {/* ── Botones de turno: Llamar · Finalizar ── */}
         {actual && (() => {
           const estatusId = estatusToId(actual.estatus)
-          const isProcessing = advancing === actual.id_visita_estudio
+          const isProcessing = advancing === visita.visita_id   // clave por visitaId
           const yaFinalizado = estatusId === 12
           const puedeIniciar   = estatusId === 1
           const puedeFinalizar = estatusId === 9 || estatusId === 10
 
-          if (yaFinalizado) return (
-            <div className="mt-4 text-center text-xs text-green-600 font-semibold bg-green-50 py-2.5 rounded-xl border border-green-100">
-              ✓ Cita finalizada
-            </div>
-          )
+          if (yaFinalizado) return null
 
           return (
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -358,27 +354,31 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
                 disabled={!puedeIniciar || isProcessing}
                 onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', 1)}
                 className={`py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-1 border-2 ${
-                  puedeIniciar && !isProcessing
+                  isProcessing
+                    ? 'bg-blue-400 border-blue-400 text-white cursor-wait'
+                    : puedeIniciar
                     ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200'
                     : estatusId > 1
                     ? 'bg-blue-50 border-blue-100 text-blue-300 cursor-default'
                     : 'bg-gray-50 border-gray-100 text-gray-300 cursor-default'
                 }`}
               >
-                <span className="text-base">{estatusId > 1 ? '✓' : '📣'}</span>
-                Iniciar cita
+                <span className="text-base">{isProcessing ? '⏳' : estatusId > 1 ? '✓' : '📣'}</span>
+                {isProcessing ? 'Guardando...' : 'Iniciar cita'}
               </button>
               <button
                 disabled={!puedeFinalizar || isProcessing}
                 onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
                 className={`py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-1 border-2 ${
-                  puedeFinalizar && !isProcessing
+                  isProcessing
+                    ? 'bg-emerald-400 border-emerald-400 text-white cursor-wait'
+                    : puedeFinalizar
                     ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                     : 'bg-gray-50 border-gray-100 text-gray-300 cursor-default'
                 }`}
               >
-                <span className="text-base">✅</span>
-                Finalizar
+                <span className="text-base">{isProcessing ? '⏳' : '✅'}</span>
+                {isProcessing ? 'Guardando...' : 'Finalizar'}
               </button>
             </div>
           )
@@ -549,7 +549,7 @@ function EspecialistaView({ session, onLogout, connected }: {
   const handleAvanzar = async (visitaId: string, veId: string, estatusId: number) => {
     const siguiente = getSiguienteEspecialista(estatusId)
     if (!siguiente) return
-    setAdvancing(veId)
+    setAdvancing(visitaId)   // clave por visitaId — siempre es un UUID válido
     try {
       await avanzarEstudio(visitaId, {
         id_visita_estudio: veId,
@@ -557,11 +557,16 @@ function EspecialistaView({ session, onLogout, connected }: {
         nuevo_paso: siguiente.paso,
         nuevo_progreso: siguiente.progreso,
       })
-      setTimeout(fetchPacientes, 800)
-      // Si se finalizó el estudio (VERIFICADO), refrescar la lista de atendidos
       if (siguiente.id === 12) {
-        setTimeout(fetchAtendidos, 1200)
+        setPacientes(prev => prev.filter(p => p.visita_id !== visitaId))
+        setTimeout(fetchAtendidos, 800)
+        setTimeout(fetchPacientes, 1200)   // doble check por si acaso
+      } else {
+        setTimeout(fetchPacientes, 800)
       }
+    } catch (err) {
+      console.error('[avanzar] error:', err)
+      setTimeout(fetchPacientes, 600)  // refrescar aunque falle
     } finally {
       setAdvancing(null)
     }
@@ -1432,7 +1437,7 @@ export default function App() {
   const handleAvanzar = async (visitaId: string, veId: string, estatusActualId: number) => {
     const siguiente = getSiguienteEstatus(estatusActualId)
     if (!siguiente) return
-    setAdvancing(veId)
+    setAdvancing(visitaId)   // clave por visitaId
     try {
       await avanzarEstudio(visitaId, { id_visita_estudio: veId, nuevo_estatus: siguiente.id, nuevo_paso: siguiente.paso, nuevo_progreso: siguiente.progreso })
       setTimeout(fetchVisitas, 800)
