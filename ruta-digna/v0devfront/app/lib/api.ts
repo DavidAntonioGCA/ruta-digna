@@ -4,21 +4,19 @@ function joinUrl(base: string, path: string) {
   return `${base}${path.startsWith('/') ? path : `/${path}`}`
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  try {
-    const res = await fetch(joinUrl(API_URL, path), {
-      headers: { 'Content-Type': 'application/json' },
-      ...options,
-    })
-    if (!res.ok) {
-      const errorBody = await res.text()
-      throw new Error(`API error ${res.status}: ${errorBody}`)
-    }
-    return res.json()
-  } catch (err) {
-    console.error(`[API] Error en ${path}:`, err)
+async function apiFetch<T>(path: string, options?: RequestInit, silent404 = false): Promise<T> {
+  const res = await fetch(joinUrl(API_URL, path), {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    const errorBody = await res.text()
+    const err = new Error(`API error ${res.status}: ${errorBody}`)
+    if (res.status === 404 && silent404) throw err   // caller handles silently
+    console.error(`[API] Error en ${path}:`, err.message)
     throw err
   }
+  return res.json()
 }
 
 export interface EstudioVisita {
@@ -55,11 +53,35 @@ export const buscarPaciente = (telefono: string) =>
     `/paciente/buscar?telefono=${encodeURIComponent(telefono)}`
   )
 
-export const registrarPaciente = (nombre: string, telefono: string) =>
-  apiFetch<{ paciente_id: string; nombre: string }>('/paciente/registrar', {
-    method: 'POST',
-    body: JSON.stringify({ nombre, telefono }),
-  })
+export interface VerificarResponse {
+  escenario: 'cuenta_activa' | 'primer_acceso_sd' | 'nuevo'
+  // cuenta_activa
+  nombre_mascara?: string; tipo_paciente?: string; tiene_pin?: boolean; en_sd?: boolean
+  // primer_acceso_sd
+  datos_sd?: {
+    nombre: string; primer_apellido: string; segundo_apellido: string
+    fecha_nacimiento: string; sexo: string; nacionalidad: string
+    residencia: string; discapacidad: boolean
+  }
+  tipo_detectado?: string; mujer_fertil?: boolean
+}
+export const verificarPaciente = (telefono: string) =>
+  apiFetch<VerificarResponse>(`/paciente/verificar?telefono=${encodeURIComponent(telefono)}`)
+
+export const loginPaciente = (telefono: string, pin: string) =>
+  apiFetch<{ paciente_id: string; nombre: string; tipo_paciente: string; visita_id: string | null }>(
+    '/paciente/login', { method: 'POST', body: JSON.stringify({ telefono, pin }) }
+  )
+
+export const registrarPaciente = (data: {
+  nombre: string; primer_apellido: string; segundo_apellido?: string
+  telefono: string; fecha_nacimiento: string; sexo: string
+  nacionalidad?: string; residencia?: string; discapacidad?: boolean
+  embarazada?: boolean; pin: string
+}) =>
+  apiFetch<{ paciente_id: string; nombre: string; tipo_paciente: string }>(
+    '/paciente/registrar', { method: 'POST', body: JSON.stringify(data) }
+  )
 
 export const crearVisita = (body: {
   id_paciente: string
@@ -101,4 +123,4 @@ export interface ResultadoEstudio {
   created_at: string
 }
 export const getResultadosVisita = (visitaId: string) =>
-  apiFetch<ResultadoEstudio[]>(`/resultados/visita/${visitaId}`)
+  apiFetch<ResultadoEstudio[]>(`/resultados/visita/${visitaId}`, undefined, true)

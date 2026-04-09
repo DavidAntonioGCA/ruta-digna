@@ -20,7 +20,11 @@ export default function Recomendar() {
   const [error, setError] = useState<string | null>(null)
   const [showOthers, setShowOthers] = useState(false)
   const [showOrden, setShowOrden] = useState(false)
-  const [tipoPaciente, setTipoPaciente] = useState("sin_cita")
+  const [tipoPaciente] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ruta_session") || "{}").tipo_paciente ?? "sin_cita"
+    } catch { return "sin_cita" }
+  })
 
   const handleBuscar = async () => {
     if (!mensaje.trim()) return
@@ -242,29 +246,26 @@ export default function Recomendar() {
                   </div>
                 )}
 
-                {/* Selector de tipo de paciente */}
-                <div className="mt-8 border-t border-slate-100 pt-6">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 select-none">¿Tienes alguna condición especial?</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { value: "sin_cita",     label: "Sin cita",      color: "bg-slate-100 text-slate-600",   active: "bg-slate-800 text-white" },
-                      { value: "con_cita",     label: "Con cita",      color: "bg-blue-50 text-blue-700",      active: "bg-blue-600 text-white" },
-                      { value: "embarazada",   label: "Embarazada",    color: "bg-pink-50 text-pink-700",      active: "bg-pink-500 text-white" },
-                      { value: "adulto_mayor", label: "Adulto mayor",  color: "bg-amber-50 text-amber-700",    active: "bg-amber-500 text-white" },
-                      { value: "discapacidad", label: "Discapacidad",  color: "bg-purple-50 text-purple-700",  active: "bg-purple-600 text-white" },
-                      { value: "urgente",      label: "Urgente",       color: "bg-red-50 text-red-700",        active: "bg-red-600 text-white" },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setTipoPaciente(opt.value)}
-                        className={`py-2.5 px-3 rounded-2xl text-xs font-black transition-all select-none ${tipoPaciente === opt.value ? opt.active + " shadow-lg scale-[1.02]" : opt.color}`}
-                      >
-                        {opt.label}
-                        {tipoPaciente === opt.value && <span className="ml-1">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {/* Prioridad detectada automáticamente */}
+                {(() => {
+                  const TIPO_BADGE: Record<string, { label: string; color: string; icon: string }> = {
+                    adulto_mayor: { label: "Adulto mayor", color: "bg-amber-50 text-amber-700 border-amber-200", icon: "👴" },
+                    discapacidad: { label: "Discapacidad",  color: "bg-purple-50 text-purple-700 border-purple-200", icon: "♿" },
+                    embarazada:   { label: "Embarazada",    color: "bg-pink-50 text-pink-700 border-pink-200",   icon: "🤰" },
+                    con_cita:     { label: "Con cita previa", color: "bg-blue-50 text-blue-700 border-blue-200", icon: "📋" },
+                    sin_cita:     { label: "Sin cita",      color: "bg-slate-50 text-slate-600 border-slate-200", icon: "👤" },
+                  }
+                  const info = TIPO_BADGE[tipoPaciente] ?? TIPO_BADGE.sin_cita
+                  return (
+                    <div className={`mt-6 flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm font-bold ${info.color}`}>
+                      <span className="text-lg">{info.icon}</span>
+                      <div>
+                        <p className="font-black leading-tight">Prioridad: {info.label}</p>
+                        <p className="text-xs font-medium opacity-60 mt-0.5">Asignada automáticamente con tu perfil</p>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 <button
                   onClick={handleComenzar}

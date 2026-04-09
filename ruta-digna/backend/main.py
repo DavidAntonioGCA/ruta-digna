@@ -81,29 +81,144 @@ async def buscar_paciente(telefono: str):
         raise HTTPException(500, str(e))
 
 
-@app.post("/paciente/registrar", tags=["Visitas"])
-async def registrar_paciente(body: dict):
-    """Crea un nuevo paciente y retorna su id."""
+@app.get("/paciente/verificar", tags=["Visitas"])
+async def verificar_paciente(telefono: str):
+    """
+    Verifica el teléfono contra el mock de Salud Digna y el sistema interno.
+    Retorna el escenario: 'cuenta_activa' | 'primer_acceso_sd' | 'nuevo'
+    """
+    try:
+        from services.supabase_client import get_supabase
+        from services.salud_digna_mock import buscar_en_sd, calcular_tipo_paciente, es_mujer_fertil
+    except ImportError:
+        from backend.services.supabase_client import get_supabase
+        from backend.services.salud_digna_mock import buscar_en_sd, calcular_tipo_paciente, es_mujer_fertil
+    try:
+        sb = get_supabase()
+        sd = buscar_en_sd(telefono)
+        sistema = sb.table("pacientes").select("id, nombre, tipo_base, pin").eq("telefono", telefono).execute()
+        en_sistema = bool(sistema.data)
+
+        if en_sistema:
+            p = sistema.data[0]
+            tiene_pin = bool(p.get("pin"))
+            nombre_completo = p.get("nombre", "")
+            partes = nombre_completo.split()
+            nombre_mask = f"{partes[0][0]}{'*' * (len(partes[0])-1)} {partes[-1][0]}{'*' * (len(partes[-1])-1)}" if len(partes) >= 2 else nombre_completo
+            return {
+                "escenario": "cuenta_activa",
+                "nombre_mascara": nombre_mask,
+                "tipo_paciente": p.get("tipo_base", "sin_cita"),
+                "tiene_pin": tiene_pin,
+                "en_sd": sd is not None,
+            }
+
+        if sd:
+            tipo = calcular_tipo_paciente(sd)
+            return {
+                "escenario": "primer_acceso_sd",
+                "datos_sd": {
+                    "nombre":           sd["nombre"],
+                    "primer_apellido":  sd["primer_apellido"],
+                    "segundo_apellido": sd["segundo_apellido"],
+                    "fecha_nacimiento": sd["fecha_nacimiento"],
+                    "sexo":             sd["sexo"],
+                    "nacionalidad":     sd["nacionalidad"],
+                    "residencia":       sd["residencia"],
+                    "discapacidad":     sd["discapacidad"],
+                },
+                "tipo_detectado":    tipo,
+                "mujer_fertil":      es_mujer_fertil(sd),
+            }
+
+        return {"escenario": "nuevo"}
+
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/paciente/login", tags=["Visitas"])
+async def login_paciente(body: dict):
+    """Valida PIN y retorna sesión del paciente."""
     try:
         from services.supabase_client import get_supabase
     except ImportError:
         from backend.services.supabase_client import get_supabase
+    try:
+        sb = get_supabase()
+        telefono = body.get("telefono", "")
+        pin = body.get("pin", "")
+        p = sb.table("pacientes").select("id, nombre, pin, tipo_base").eq("telefono", telefono).execute()
+        if not p.data:
+            raise HTTPException(404, "Paciente no encontrado")
+        pac = p.data[0]
+        if pac.get("pin") and pac["pin"] != pin:
+            raise HTTPException(401, "PIN incorrecto")
+        v = sb.table("visitas").select("id").eq("id_paciente", pac["id"]).eq("estatus", "en_proceso").order("timestamp_llegada", desc=True).limit(1).execute()
+        return {
+            "paciente_id":  pac["id"],
+            "nombre":       pac["nombre"],
+            "tipo_paciente": pac.get("tipo_base", "sin_cita"),
+            "visita_id":    v.data[0]["id"] if v.data else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/paciente/registrar", tags=["Visitas"])
+async def registrar_paciente(body: dict):
+    """Crea o activa un paciente con datos completos."""
+    try:
+        from services.supabase_client import get_supabase
+        from services.salud_digna_mock import buscar_en_sd, calcular_tipo_paciente
+    except ImportError:
+        from backend.services.supabase_client import get_supabase
+        from backend.services.salud_digna_mock import buscar_en_sd, calcular_tipo_paciente
     import uuid as _uuid
     try:
         sb = get_supabase()
-        # Si ya existe ese teléfono, devolver el existente
-        existing = sb.table("pacientes").select("id, nombre").eq("telefono", body.get("telefono", "")).execute()
+        telefono = body.get("telefono", "")
+        existing = sb.table("pacientes").select("id, nombre").eq("telefono", telefono).execute()
         if existing.data:
             p = existing.data[0]
-            return {"paciente_id": p["id"], "nombre": p["nombre"]}
+            return {"paciente_id": p["id"], "nombre": p["nombre"], "tipo_paciente": body.get("tipo_paciente", "sin_cita")}
+
+        embarazada = body.get("embarazada", False)
+        datos = {
+            "fecha_nacimiento": body.get("fecha_nacimiento", ""),
+            "discapacidad":     body.get("discapacidad", False),
+            "sexo":             body.get("sexo", ""),
+            "visitas_previas":  0,
+        }
+        tipo_base = calcular_tipo_paciente(datos, embarazada=embarazada)
+        nombre_completo = " ".join(filter(None, [
+            body.get("nombre", ""), body.get("primer_apellido", ""), body.get("segundo_apellido", "")
+        ])) or "Paciente"
+
         pid = str(_uuid.uuid4())
+        pin = body.get("pin") or telefono[-4:]
+        sd = buscar_en_sd(telefono)
+
         sb.table("pacientes").insert({
-            "id":       pid,
-            "nombre":   body.get("nombre", "Paciente"),
-            "telefono": body.get("telefono", ""),
-            "email":    body.get("email"),
+            "id":              pid,
+            "nombre":          nombre_completo,
+            "telefono":        telefono,
+            "email":           body.get("email"),
+            "primer_apellido": body.get("primer_apellido"),
+            "segundo_apellido":body.get("segundo_apellido"),
+            "fecha_nacimiento":body.get("fecha_nacimiento"),
+            "sexo":            body.get("sexo"),
+            "nacionalidad":    body.get("nacionalidad", "Mexicana"),
+            "residencia":      body.get("residencia"),
+            "discapacidad":    body.get("discapacidad", False),
+            "tipo_base":       tipo_base,
+            "pin":             pin,
+            "sd_registrado":   sd is not None,
         }).execute()
-        return {"paciente_id": pid, "nombre": body.get("nombre", "Paciente")}
+
+        return {"paciente_id": pid, "nombre": nombre_completo, "tipo_paciente": tipo_base}
     except Exception as e:
         raise HTTPException(500, str(e))
 
