@@ -9,189 +9,92 @@ import {
   cambiarTipoPaciente, getAlertas, crearAlerta, resolverAlerta,
   getVisitasEspecialista
 } from './api'
-import api from './api'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
-// ── Flujo simplificado para la demo ──────────────────────────────
+// ── Flujo de estatus ──────────────────────────────────────────────
 const FLUJO_DEMO = [
   { id: 1,  nombre: 'PAGADO',      paso: 'espera',      progreso: 0   },
   { id: 9,  nombre: 'INICIO_TOMA', paso: 'inicio_toma', progreso: 33  },
   { id: 10, nombre: 'FIN_TOMA',    paso: 'fin_toma',    progreso: 66  },
   { id: 12, nombre: 'VERIFICADO',  paso: 'finalizado',  progreso: 100 },
 ]
-
-function getSiguienteEstatus(estatusActualId: number) {
-  const idx = FLUJO_DEMO.findIndex(f => f.id === estatusActualId)
+function getSiguienteEstatus(id: number) {
+  const idx = FLUJO_DEMO.findIndex(f => f.id === id)
   return idx >= 0 && idx < FLUJO_DEMO.length - 1 ? FLUJO_DEMO[idx + 1] : null
 }
-
 function estatusToId(nombre: string) {
   return nombre === 'PAGADO' ? 1 : nombre === 'INICIO_TOMA' ? 9 : nombre === 'FIN_TOMA' ? 10 : 12
 }
 
 // ── Constantes ────────────────────────────────────────────────────
 const TIPOS_PACIENTE = [
-  { value: 'urgente',       label: 'Urgente',        color: 'bg-red-100 text-red-700',    dot: 'bg-red-500' },
-  { value: 'embarazada',    label: 'Embarazada',     color: 'bg-pink-100 text-pink-700',  dot: 'bg-pink-500' },
-  { value: 'adulto_mayor',  label: 'Adulto mayor',   color: 'bg-amber-100 text-amber-700',dot: 'bg-amber-500' },
-  { value: 'discapacidad',  label: 'Discapacidad',   color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
-  { value: 'con_cita',      label: 'Con cita',       color: 'bg-blue-100 text-blue-700',  dot: 'bg-blue-500' },
-  { value: 'sin_cita',      label: 'Sin cita',       color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400' },
+  { value: 'urgente',      label: 'Urgente',      color: 'bg-red-100 text-red-700',      dot: 'bg-red-500',    ring: 'ring-red-200'    },
+  { value: 'embarazada',   label: 'Embarazada',   color: 'bg-pink-100 text-pink-700',    dot: 'bg-pink-500',   ring: 'ring-pink-200'   },
+  { value: 'adulto_mayor', label: 'Adulto mayor', color: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-500',  ring: 'ring-amber-200'  },
+  { value: 'discapacidad', label: 'Discapacidad', color: 'bg-purple-100 text-purple-700',dot: 'bg-purple-500', ring: 'ring-purple-200' },
+  { value: 'con_cita',     label: 'Con cita',     color: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500',   ring: 'ring-blue-200'   },
+  { value: 'sin_cita',     label: 'Sin cita',     color: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400',   ring: 'ring-gray-200'   },
 ]
-
 const TIPOS_ALERTA = [
-  { value: 'equipo_averiado',   label: 'Equipo averiado',     icon: '🔧' },
-  { value: 'personal_ausente',  label: 'Personal ausente',    icon: '👤' },
-  { value: 'emergencia_medica', label: 'Emergencia médica',   icon: '🚨' },
-  { value: 'retraso_general',   label: 'Retraso general',     icon: '⏱️' },
-  { value: 'cierre_temporal',   label: 'Cierre temporal',     icon: '🚫' },
-  { value: 'saturacion',        label: 'Saturación',          icon: '📊' },
-  { value: 'otro',              label: 'Otro',                icon: '📌' },
+  { value: 'equipo_averiado',   label: 'Equipo averiado',   icon: '🔧' },
+  { value: 'personal_ausente',  label: 'Personal ausente',  icon: '👤' },
+  { value: 'emergencia_medica', label: 'Emergencia médica', icon: '🚨' },
+  { value: 'retraso_general',   label: 'Retraso general',   icon: '⏱️' },
+  { value: 'cierre_temporal',   label: 'Cierre temporal',   icon: '🚫' },
+  { value: 'saturacion',        label: 'Saturación',        icon: '📊' },
+  { value: 'otro',              label: 'Otro',              icon: '📌' },
 ]
-
 const SEVERIDADES = [
-  { value: 'baja',    label: 'Baja',    color: 'bg-green-100 text-green-700 border-green-200' },
+  { value: 'baja',    label: 'Baja',    color: 'bg-green-100 text-green-700 border-green-200'   },
   { value: 'media',   label: 'Media',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   { value: 'alta',    label: 'Alta',    color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  { value: 'critica', label: 'Crítica', color: 'bg-red-100 text-red-700 border-red-200' },
+  { value: 'critica', label: 'Crítica', color: 'bg-red-100 text-red-700 border-red-200'          },
 ]
-
 const SUCURSALES = [
-  { id: 1,  nombre: 'Culiacán'  },
-  { id: 5,  nombre: 'Los Mochis'},
-  { id: 6,  nombre: 'Mazatlán'  },
-  { id: 9,  nombre: 'Mexicali'  },
-  { id: 12, nombre: 'Tijuana'   },
+  { id: 1,  nombre: 'Culiacán'   },
+  { id: 5,  nombre: 'Los Mochis' },
+  { id: 6,  nombre: 'Mazatlán'   },
+  { id: 9,  nombre: 'Mexicali'   },
+  { id: 12, nombre: 'Tijuana'    },
+]
+const ESTUDIOS_AREA = [
+  { key: 'LABORATORIO',        label: 'Laboratorio',   icon: '🧪', color: 'bg-blue-600',   light: 'bg-blue-50 text-blue-700 border-blue-200'   },
+  { key: 'ULTRASONIDO',        label: 'Ultrasonido',   icon: '📡', color: 'bg-emerald-600', light: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { key: 'RAYOS X',            label: 'Rayos X',       icon: '☢️',  color: 'bg-purple-600', light: 'bg-purple-50 text-purple-700 border-purple-200'  },
+  { key: 'TOMOGRAFÍA',         label: 'Tomografía',    icon: '🔬', color: 'bg-orange-600',  light: 'bg-orange-50 text-orange-700 border-orange-200'  },
+  { key: 'ELECTROCARDIOGRAMA', label: 'ECG',           icon: '❤️',  color: 'bg-red-600',    light: 'bg-red-50 text-red-700 border-red-200'           },
+  { key: 'MASTOGRAFÍA',        label: 'Mastografía',   icon: '🩺', color: 'bg-pink-600',    light: 'bg-pink-50 text-pink-700 border-pink-200'        },
+  { key: 'DENSITOMETRÍA',      label: 'Densitometría', icon: '🦴', color: 'bg-cyan-600',    light: 'bg-cyan-50 text-cyan-700 border-cyan-200'        },
 ]
 
+// ── Session ───────────────────────────────────────────────────────
+interface Session {
+  rol: 'especialista' | 'coordinador'
+  nombre: string
+  area?: string
+}
+
+function getSession(): Session | null {
+  try { return JSON.parse(localStorage.getItem('rd_staff_session') || 'null') }
+  catch { return null }
+}
+function saveSession(s: Session) {
+  localStorage.setItem('rd_staff_session', JSON.stringify(s))
+}
+function clearSession() {
+  localStorage.removeItem('rd_staff_session')
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
 function minutosDesde(ts: string) {
   if (!ts) return '—'
   const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 60000)
   return diff < 60 ? `${diff} min` : `${Math.floor(diff / 60)}h ${diff % 60}m`
 }
-
 function getTipoInfo(tipo: string) {
   return TIPOS_PACIENTE.find(t => t.value === tipo) || TIPOS_PACIENTE[5]
 }
-
-// ── Estudios disponibles por área ────────────────────────────────
-const ESTUDIOS_AREA = [
-  { key: 'LABORATORIO',  label: 'Laboratorio',  icon: '🧪', color: 'bg-blue-600'   },
-  { key: 'ULTRASONIDO',  label: 'Ultrasonido',  icon: '📡', color: 'bg-emerald-600' },
-  { key: 'RAYOS X',      label: 'Rayos X',      icon: '☢️',  color: 'bg-purple-600' },
-  { key: 'TOMOGRAFIA',   label: 'Tomografía',   icon: '🔬', color: 'bg-orange-600'  },
-  { key: 'ELECTROCARDIOGRAMA', label: 'ECG',    icon: '❤️',  color: 'bg-red-600'    },
-]
-
-// ── Panel de Especialista ─────────────────────────────────────────
-function EspecialistaPanel({ advancing, onAvanzar, onChangePriority }: {
-  advancing: string | null
-  onAvanzar: (visitaId: string, veId: string, estatusId: number) => void
-  onChangePriority: (visitaId: string, tipo: string) => void
-}) {
-  const [estudioSeleccionado, setEstudioSeleccionado] = useState<string | null>(null)
-  const [pacientes, setPacientes] = useState<any[]>([])
-  const [loadingPacientes, setLoadingPacientes] = useState(false)
-
-  const fetchPacientes = useCallback(() => {
-    if (!estudioSeleccionado) return
-    setLoadingPacientes(true)
-    getVisitasEspecialista(estudioSeleccionado)
-      .then(data => setPacientes(Array.isArray(data) ? data : []))
-      .catch(() => setPacientes([]))
-      .finally(() => setLoadingPacientes(false))
-  }, [estudioSeleccionado])
-
-  useEffect(() => {
-    if (!estudioSeleccionado) return
-    fetchPacientes()
-    const iv = setInterval(fetchPacientes, 5000)
-    return () => clearInterval(iv)
-  }, [fetchPacientes, estudioSeleccionado])
-
-  const areaInfo = ESTUDIOS_AREA.find(e => e.key === estudioSeleccionado)
-
-  return (
-    <div>
-      {/* Selector de área */}
-      <div className="mb-6">
-        <p className="text-xs text-gray-500 font-medium mb-3 uppercase tracking-wide">Selecciona tu área</p>
-        <div className="flex flex-wrap gap-2">
-          {ESTUDIOS_AREA.map(est => (
-            <button
-              key={est.key}
-              onClick={() => { setEstudioSeleccionado(est.key); setPacientes([]) }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                estudioSeleccionado === est.key
-                  ? `${est.color} text-white shadow-lg scale-105`
-                  : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <span>{est.icon}</span>
-              {est.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Lista de pacientes del área */}
-      {estudioSeleccionado ? (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-900">
-              {areaInfo?.icon} Pacientes en {areaInfo?.label}
-            </h2>
-            <div className="flex items-center gap-2">
-              {loadingPacientes && (
-                <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              )}
-              <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                pacientes.length > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
-              }`}>
-                {pacientes.length} paciente{pacientes.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-          </div>
-
-          {pacientes.length === 0 && !loadingPacientes ? (
-            <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
-              <p className="text-3xl mb-2">✅</p>
-              <p className="text-sm font-medium text-gray-500">Sin pacientes en espera</p>
-              <p className="text-xs text-gray-400 mt-1">Cola de {areaInfo?.label} vacía</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pacientes.map((v: any, idx: number) => (
-                <div key={v.visita_id} className="relative">
-                  {/* Badge de posición */}
-                  <div className="absolute -left-2 -top-2 z-10 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-black flex items-center justify-center shadow">
-                    {idx + 1}
-                  </div>
-                  <VisitaRow
-                    visita={v}
-                    advancing={advancing}
-                    onAvanzar={onAvanzar}
-                    onChangePriority={onChangePriority}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
-          <p className="text-3xl mb-2">👆</p>
-          <p className="text-sm font-medium text-gray-500">Selecciona tu área de trabajo</p>
-          <p className="text-xs text-gray-400 mt-1">Verás solo los pacientes de tu servicio</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Tabs ──────────────────────────────────────────────────────────
-type TabId = 'colas' | 'pacientes' | 'especialista' | 'alertas'
 
 // ── StatsCard ─────────────────────────────────────────────────────
 function StatsCard({ label, value, sub, accent }: {
@@ -206,16 +109,13 @@ function StatsCard({ label, value, sub, accent }: {
   )
 }
 
-// ── AlertBanner (resumen de alertas activas) ──────────────────────
+// ── AlertBanner ───────────────────────────────────────────────────
 function AlertBanner({ alertas, onViewAll }: { alertas: any[]; onViewAll: () => void }) {
   const criticas = alertas.filter((a: any) => a.severidad === 'critica' || a.severidad === 'alta')
   if (alertas.length === 0) return null
-
   return (
     <div className={`rounded-xl p-3 flex items-center justify-between ${
-      criticas.length > 0
-        ? 'bg-red-50 border border-red-200'
-        : 'bg-amber-50 border border-amber-200'
+      criticas.length > 0 ? 'bg-red-50 border border-red-200' : 'bg-amber-50 border border-amber-200'
     }`}>
       <div className="flex items-center gap-3">
         <span className="text-lg">{criticas.length > 0 ? '🚨' : '⚠️'}</span>
@@ -225,29 +125,24 @@ function AlertBanner({ alertas, onViewAll }: { alertas: any[]; onViewAll: () => 
             {criticas.length > 0 && ` · ${criticas.length} de alta prioridad`}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">
-            {alertas[0]?.titulo}
-            {alertas.length > 1 && ` (+${alertas.length - 1} más)`}
+            {alertas[0]?.titulo}{alertas.length > 1 && ` (+${alertas.length - 1} más)`}
           </p>
         </div>
       </div>
-      <button
-        onClick={onViewAll}
-        className="text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-      >
+      <button onClick={onViewAll} className="text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50">
         Ver todas
       </button>
     </div>
   )
 }
 
-// ── VisitaRow ─────────────────────────────────────────────────────
+// ── VisitaRow (coordinador — vista compacta) ──────────────────────
 function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
-  visita: any
-  advancing: string | null
+  visita: any; advancing: string | null
   onAvanzar: (visitaId: string, veId: string, estatusId: number) => void
   onChangePriority: (visitaId: string, tipo: string) => void
 }) {
-  const [showPriorityMenu, setShowPriorityMenu] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
   const estudios: any[] = visita.estudios ?? []
   const actual = estudios.find((e: any) => e.es_actual)
   const tipoInfo = getTipoInfo(visita.tipo_paciente)
@@ -260,29 +155,18 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
           <p className="text-xs text-gray-400 mt-0.5">{minutosDesde(visita.timestamp_llegada)} en clínica</p>
         </div>
         <div className="relative">
-          <button
-            onClick={() => setShowPriorityMenu(!showPriorityMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:ring-2 hover:ring-blue-200 transition-all ${tipoInfo.color}`}
-            title="Cambiar prioridad"
-          >
+          <button onClick={() => setShowMenu(!showMenu)}
+            className={`text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:ring-2 hover:ring-blue-200 transition-all ${tipoInfo.color}`}>
             {tipoInfo.label} ▾
           </button>
-          {showPriorityMenu && (
+          {showMenu && (
             <>
-              <div className="fixed inset-0 z-30" onClick={() => setShowPriorityMenu(false)} />
+              <div className="fixed inset-0 z-30" onClick={() => setShowMenu(false)} />
               <div className="absolute right-0 top-7 z-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 min-w-[160px]">
                 <p className="text-xs text-gray-400 px-3 py-1 font-medium">Cambiar prioridad:</p>
                 {TIPOS_PACIENTE.map(tipo => (
-                  <button
-                    key={tipo.value}
-                    onClick={() => {
-                      onChangePriority(visita.visita_id, tipo.value)
-                      setShowPriorityMenu(false)
-                    }}
-                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${
-                      visita.tipo_paciente === tipo.value ? 'font-medium' : ''
-                    }`}
-                  >
+                  <button key={tipo.value} onClick={() => { onChangePriority(visita.visita_id, tipo.value); setShowMenu(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${visita.tipo_paciente === tipo.value ? 'font-medium' : ''}`}>
                     <span className={`w-2 h-2 rounded-full ${tipo.dot}`} />
                     {tipo.label}
                     {visita.tipo_paciente === tipo.value && <span className="ml-auto">✓</span>}
@@ -293,44 +177,28 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
           )}
         </div>
       </div>
-
-      {/* Estudios en orden */}
       <div className="flex items-center gap-1 flex-wrap mb-3">
         {estudios.map((est: any, i: number) => (
           <div key={est.orden ?? i} className="flex items-center gap-1">
             <span className={`text-xs px-2 py-0.5 rounded-full ${
               est.es_estado_final ? 'bg-green-100 text-green-700' :
-              est.es_actual       ? 'bg-blue-100 text-blue-700 font-medium' :
-                                    'bg-gray-100 text-gray-500'
+              est.es_actual ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-gray-100 text-gray-500'
             }`}>
-              {est.orden}. {est.nombre}
-              {est.es_estado_final ? ' ✓' : est.es_actual ? ' ⏳' : ''}
+              {est.orden}. {est.nombre}{est.es_estado_final ? ' ✓' : est.es_actual ? ' ⏳' : ''}
             </span>
             {i < estudios.length - 1 && <span className="text-gray-300 text-xs">→</span>}
           </div>
         ))}
       </div>
-
-      {/* Guía de ubicación del estudio actual */}
-      {actual?.guia && actual.guia.instrucciones && actual.guia.instrucciones !== 'Pregunta en recepción' && (
-        <div className="text-xs text-gray-500 bg-blue-50 rounded-lg px-3 py-2 mb-3 flex items-start gap-2">
-          <span>📍</span>
-          <span>{actual.guia.nombre_area} — {actual.guia.ubicacion}</span>
-        </div>
-      )}
-
-      {/* Botón avanzar */}
       {actual && (() => {
         const estatusId = estatusToId(actual.estatus)
         const siguiente = getSiguienteEstatus(estatusId)
         if (!siguiente) return null
         return (
-          <button
-            disabled={advancing !== null}
+          <button disabled={advancing !== null}
             onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
-            className="w-full text-xs bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
-          >
-            {advancing === (actual.id_visita_estudio ?? '') ? 'Avanzando...' : `→ Avanzar a ${siguiente.nombre}`}
+            className="w-full text-xs bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium">
+            {advancing === actual.id_visita_estudio ? 'Avanzando...' : `→ Avanzar a ${siguiente.nombre}`}
           </button>
         )
       })()}
@@ -338,51 +206,286 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
   )
 }
 
-// ── VisitaDemoControl ────────────────────────────────────────────
-function VisitaDemoControl({ advancing, onAvanzar, onChangePriority }: {
-  advancing: string | null
+// ── EspecialistaPacienteCard ──────────────────────────────────────
+function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onChangePriority }: {
+  visita: any; posicion: number; advancing: string | null
   onAvanzar: (visitaId: string, veId: string, estatusId: number) => void
   onChangePriority: (visitaId: string, tipo: string) => void
 }) {
-  const [visita, setVisita] = useState<any>(null)
-  const VISITA_ID = '06b8efbf-67bc-426c-9523-3059d0dec059'
-
-  const fetchVisita = useCallback(() => {
-    api.get(`/paciente/status/${VISITA_ID}`)
-      .then(r => setVisita(r.data))
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    fetchVisita()
-    const iv = setInterval(fetchVisita, 5000)
-    return () => clearInterval(iv)
-  }, [fetchVisita])
-
-  if (!visita) return <p className="text-xs text-gray-400">Cargando visita demo...</p>
+  const [showMenu, setShowMenu] = useState(false)
+  const tipoInfo = getTipoInfo(visita.tipo_paciente)
+  const estudios: any[] = visita.estudios ?? []
+  const actual = estudios.find((e: any) => e.es_actual)
+  const completados = estudios.filter((e: any) => e.es_estado_final)
+  const pendientes = estudios.filter((e: any) => !e.es_estado_final && !e.es_actual)
+  const esUrgente = visita.tipo_paciente === 'urgente'
 
   return (
-    <VisitaRow
-      visita={{ ...visita, tipo_paciente: visita.tipo_paciente ?? 'sin_cita' }}
-      advancing={advancing}
-      onAvanzar={onAvanzar}
-      onChangePriority={onChangePriority}
-    />
+    <div className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden transition-all ${
+      esUrgente ? 'border-red-200 shadow-red-50' : posicion === 1 ? 'border-blue-200 shadow-blue-50' : 'border-gray-100'
+    }`}>
+      {/* Barra de estado urgente */}
+      {esUrgente && (
+        <div className="bg-red-500 text-white text-xs font-black text-center py-1 tracking-widest uppercase">
+          🚨 Atención urgente
+        </div>
+      )}
+      {posicion === 1 && !esUrgente && (
+        <div className="bg-blue-600 text-white text-xs font-black text-center py-1 tracking-widest uppercase">
+          ⏭ Siguiente en atender
+        </div>
+      )}
+
+      <div className="p-5">
+        {/* Header: posición + nombre + prioridad */}
+        <div className="flex items-start gap-4">
+          {/* Número de turno */}
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0 ${
+            esUrgente ? 'bg-red-100 text-red-600' :
+            posicion === 1 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
+          }`}>
+            {posicion}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-bold text-gray-900 text-base truncate">{visita.paciente ?? 'Paciente'}</p>
+              {/* Dropdown prioridad */}
+              <div className="relative shrink-0">
+                <button onClick={() => setShowMenu(!showMenu)}
+                  className={`text-xs px-2.5 py-1 rounded-full font-semibold cursor-pointer hover:ring-2 transition-all ${tipoInfo.color} ${tipoInfo.ring}`}>
+                  {tipoInfo.label} ▾
+                </button>
+                {showMenu && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setShowMenu(false)} />
+                    <div className="absolute right-0 top-8 z-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 min-w-[160px]">
+                      <p className="text-xs text-gray-400 px-3 py-1 font-medium">Cambiar prioridad:</p>
+                      {TIPOS_PACIENTE.map(tipo => (
+                        <button key={tipo.value}
+                          onClick={() => { onChangePriority(visita.visita_id, tipo.value); setShowMenu(false) }}
+                          className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${visita.tipo_paciente === tipo.value ? 'font-semibold' : ''}`}>
+                          <span className={`w-2 h-2 rounded-full ${tipo.dot}`} />
+                          {tipo.label}
+                          {visita.tipo_paciente === tipo.value && <span className="ml-auto text-blue-600">✓</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+              <span>⏱ {minutosDesde(visita.timestamp_llegada)} en clínica</span>
+              <span>~{visita.tiempo_espera_total_min ?? '?'} min estimado</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Estudios de la visita */}
+        <div className="mt-4 space-y-2">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ruta de estudios</p>
+          <div className="flex flex-col gap-1.5">
+            {estudios.map((est: any, i: number) => (
+              <div key={i} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium ${
+                est.es_estado_final
+                  ? 'bg-green-50 text-green-700'
+                  : est.es_actual
+                  ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200'
+                  : 'bg-gray-50 text-gray-500'
+              }`}>
+                <span className="shrink-0">
+                  {est.es_estado_final ? '✅' : est.es_actual ? '▶' : '⏸'}
+                </span>
+                <span className="flex-1">{est.nombre}</span>
+                {est.es_actual && (
+                  <span className="text-[9px] font-black uppercase tracking-tighter text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
+                    Aquí ahora
+                  </span>
+                )}
+                {est.es_estado_final && (
+                  <span className="text-[9px] font-black uppercase tracking-tighter text-green-600">
+                    Listo
+                  </span>
+                )}
+                {!est.es_actual && !est.es_estado_final && (
+                  <span className="text-[9px] text-gray-400">Pendiente</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Botón avanzar */}
+        {actual && (() => {
+          const estatusId = estatusToId(actual.estatus)
+          const siguiente = getSiguienteEstatus(estatusId)
+          if (!siguiente) return (
+            <div className="mt-4 text-center text-xs text-green-600 font-semibold bg-green-50 py-2 rounded-xl">
+              ✓ Estudio completado en este servicio
+            </div>
+          )
+          return (
+            <button disabled={advancing !== null}
+              onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
+              className={`w-full mt-4 text-sm font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
+                esUrgente
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                  : posicion === 1
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-gray-800 hover:bg-black text-white'
+              }`}>
+              {advancing === actual.id_visita_estudio
+                ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Procesando...</>
+                : <>→ Avanzar a {siguiente.nombre}</>
+              }
+            </button>
+          )
+        })()}
+
+        {completados.length > 0 && pendientes.length > 0 && (
+          <p className="text-[10px] text-gray-400 mt-2 text-center">
+            {completados.length} completado{completados.length > 1 ? 's' : ''} · {pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''} después
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 
-// ── Panel de Alertas ─────────────────────────────────────────────
+// ── Vista del Especialista (pantalla completa al hacer login) ─────
+function EspecialistaView({ session, onLogout, connected }: {
+  session: Session; onLogout: () => void; connected: boolean
+}) {
+  const [pacientes, setPacientes] = useState<any[]>([])
+  const [advancing, setAdvancing] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const areaInfo = ESTUDIOS_AREA.find(e => e.key === session.area) || ESTUDIOS_AREA[0]
+
+  const fetchPacientes = useCallback(() => {
+    if (!session.area) return
+    getVisitasEspecialista(session.area)
+      .then(data => { setPacientes(Array.isArray(data) ? data : []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [session.area])
+
+  useEffect(() => {
+    fetchPacientes()
+    const iv = setInterval(fetchPacientes, 5000)
+    return () => clearInterval(iv)
+  }, [fetchPacientes])
+
+  const handleAvanzar = async (visitaId: string, veId: string, estatusId: number) => {
+    const siguiente = getSiguienteEstatus(estatusId)
+    if (!siguiente) return
+    setAdvancing(veId)
+    try {
+      await avanzarEstudio(visitaId, {
+        id_visita_estudio: veId,
+        nuevo_estatus: siguiente.id,
+        nuevo_paso: siguiente.paso,
+        nuevo_progreso: siguiente.progreso,
+      })
+      setTimeout(fetchPacientes, 800)
+    } finally {
+      setAdvancing(null)
+    }
+  }
+
+  const handleChangePriority = async (visitaId: string, tipo: string) => {
+    try {
+      await cambiarTipoPaciente(visitaId, tipo)
+      setTimeout(fetchPacientes, 800)
+    } catch {}
+  }
+
+  const urgentes = pacientes.filter(p => p.tipo_paciente === 'urgente')
+
+  return (
+    <div className="min-h-screen bg-slate-50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      {/* Header especialista */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 ${areaInfo.color} rounded-xl flex items-center justify-center text-lg`}>
+              {areaInfo.icon}
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 text-sm leading-none">{session.nombre}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{areaInfo.label} · Especialista</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-400'}`} />
+              <span className="text-xs text-gray-400">{connected ? 'En vivo' : 'Sin conexión'}</span>
+            </div>
+            <button onClick={onLogout}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-3xl mx-auto px-4 py-6">
+        {/* Resumen */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center shadow-sm">
+            <p className="text-3xl font-black text-gray-900">{pacientes.length}</p>
+            <p className="text-xs text-gray-500 mt-1">En cola</p>
+          </div>
+          <div className={`rounded-2xl p-4 border text-center shadow-sm ${urgentes.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
+            <p className={`text-3xl font-black ${urgentes.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>{urgentes.length}</p>
+            <p className={`text-xs mt-1 ${urgentes.length > 0 ? 'text-red-500' : 'text-gray-500'}`}>Urgentes</p>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center shadow-sm">
+            <p className="text-3xl font-black text-gray-900">
+              {pacientes.length > 0 ? `~${Math.min(pacientes[0]?.tiempo_espera_total_min ?? 0, 99)}m` : '—'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">Espera 1°</p>
+          </div>
+        </div>
+
+        {/* Lista de pacientes */}
+        {loading ? (
+          <div className="text-center py-16">
+            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-sm text-gray-400">Cargando pacientes...</p>
+          </div>
+        ) : pacientes.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+            <p className="text-4xl mb-3">✅</p>
+            <p className="font-semibold text-gray-700">Cola vacía</p>
+            <p className="text-sm text-gray-400 mt-1">No hay pacientes esperando en {areaInfo.label}</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pacientes.map((v: any, idx: number) => (
+              <EspecialistaPacienteCard
+                key={v.visita_id}
+                visita={v}
+                posicion={idx + 1}
+                advancing={advancing}
+                onAvanzar={handleAvanzar}
+                onChangePriority={handleChangePriority}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Panel Alertas ─────────────────────────────────────────────────
 function AlertasPanel({ sucursalId, alertas, onRefresh }: {
   sucursalId: number; alertas: any[]; onRefresh: () => void
 }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({
-    tipo_alerta: 'retraso_general',
-    titulo: '',
-    descripcion: '',
-    severidad: 'media',
-    impacto_tiempo_min: 15,
-    id_estudio: null as number | null,
+    tipo_alerta: 'retraso_general', titulo: '', descripcion: '',
+    severidad: 'media', impacto_tiempo_min: 15, id_estudio: null as number | null,
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -390,132 +493,73 @@ function AlertasPanel({ sucursalId, alertas, onRefresh }: {
     if (!form.titulo.trim()) return
     setSubmitting(true)
     try {
-      await crearAlerta({
-        id_sucursal: sucursalId,
-        id_estudio: form.id_estudio,
-        tipo_alerta: form.tipo_alerta,
-        titulo: form.titulo,
+      await crearAlerta({ id_sucursal: sucursalId, id_estudio: form.id_estudio,
+        tipo_alerta: form.tipo_alerta, titulo: form.titulo,
         descripcion: form.descripcion || undefined,
-        severidad: form.severidad,
-        impacto_tiempo_min: form.impacto_tiempo_min,
-      })
+        severidad: form.severidad, impacto_tiempo_min: form.impacto_tiempo_min })
       setForm({ tipo_alerta: 'retraso_general', titulo: '', descripcion: '', severidad: 'media', impacto_tiempo_min: 15, id_estudio: null })
-      setShowForm(false)
-      onRefresh()
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleResolver = async (alertaId: string) => {
-    try {
-      await resolverAlerta(alertaId)
-      onRefresh()
-    } catch (e) {
-      console.error(e)
-    }
+      setShowForm(false); onRefresh()
+    } finally { setSubmitting(false) }
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-semibold text-gray-900">Alertas e imprevistos</h2>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium"
-        >
+        <button onClick={() => setShowForm(!showForm)}
+          className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium">
           + Nueva alerta
         </button>
       </div>
-
-      {/* Formulario de nueva alerta */}
       {showForm && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
           <p className="text-sm font-medium text-gray-900 mb-3">Reportar imprevisto</p>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Tipo</label>
-              <select
-                value={form.tipo_alerta}
-                onChange={e => setForm({ ...form, tipo_alerta: e.target.value })}
-                className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5"
-              >
-                {TIPOS_ALERTA.map(t => (
-                  <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
-                ))}
+              <select value={form.tipo_alerta} onChange={e => setForm({ ...form, tipo_alerta: e.target.value })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5">
+                {TIPOS_ALERTA.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Severidad</label>
-              <select
-                value={form.severidad}
-                onChange={e => setForm({ ...form, severidad: e.target.value })}
-                className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5"
-              >
-                {SEVERIDADES.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
+              <select value={form.severidad} onChange={e => setForm({ ...form, severidad: e.target.value })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5">
+                {SEVERIDADES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
           <div className="mb-3">
             <label className="text-xs text-gray-500 mb-1 block">Título</label>
-            <input
-              type="text"
-              value={form.titulo}
-              onChange={e => setForm({ ...form, titulo: e.target.value })}
+            <input type="text" value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })}
               placeholder="Ej: Equipo de Ultrasonido sala 2 fuera de servicio"
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5"
-            />
-          </div>
-          <div className="mb-3">
-            <label className="text-xs text-gray-500 mb-1 block">Descripción (opcional)</label>
-            <textarea
-              value={form.descripcion}
-              onChange={e => setForm({ ...form, descripcion: e.target.value })}
-              placeholder="Detalles del imprevisto..."
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 resize-none"
-              rows={2}
-            />
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
           </div>
           <div className="mb-3">
             <label className="text-xs text-gray-500 mb-1 block">
-              Impacto estimado en tiempo: <strong>{form.impacto_tiempo_min} min</strong>
+              Impacto estimado: <strong>{form.impacto_tiempo_min} min</strong>
             </label>
-            <input
-              type="range"
-              min="0" max="120" step="5"
-              value={form.impacto_tiempo_min}
+            <input type="range" min="0" max="120" step="5" value={form.impacto_tiempo_min}
               onChange={e => setForm({ ...form, impacto_tiempo_min: Number(e.target.value) })}
-              className="w-full"
-            />
+              className="w-full" />
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={handleCrear}
-              disabled={!form.titulo.trim() || submitting}
-              className="flex-1 text-xs bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
-            >
+            <button onClick={handleCrear} disabled={!form.titulo.trim() || submitting}
+              className="flex-1 text-xs bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium">
               {submitting ? 'Creando...' : 'Crear alerta'}
             </button>
-            <button
-              onClick={() => setShowForm(false)}
-              className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-            >
+            <button onClick={() => setShowForm(false)}
+              className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
               Cancelar
             </button>
           </div>
         </div>
       )}
-
-      {/* Lista de alertas activas */}
       {alertas.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
           <p className="text-2xl mb-2">✅</p>
           <p className="text-sm">Sin alertas activas</p>
-          <p className="text-xs">Todo funciona con normalidad</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -530,23 +574,13 @@ function AlertasPanel({ sucursalId, alertas, onRefresh }: {
                       <span>{tipoInfo.icon}</span>
                       <p className="text-sm font-medium">{alerta.titulo}</p>
                     </div>
-                    {alerta.descripcion && (
-                      <p className="text-xs text-gray-600 mt-1">{alerta.descripcion}</p>
-                    )}
                     <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                      {alerta.estudio_afectado && (
-                        <span>Área: {alerta.estudio_afectado}</span>
-                      )}
-                      {alerta.impacto_tiempo_min > 0 && (
-                        <span>+{alerta.impacto_tiempo_min} min impacto</span>
-                      )}
+                      {alerta.impacto_tiempo_min > 0 && <span>+{alerta.impacto_tiempo_min} min</span>}
                       <span>{minutosDesde(alerta.timestamp_inicio)}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleResolver(alerta.id)}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-green-700 hover:bg-green-50 font-medium flex-shrink-0"
-                  >
+                  <button onClick={() => resolverAlerta(alerta.id).then(onRefresh)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-green-700 hover:bg-green-50 font-medium shrink-0">
                     ✓ Resolver
                   </button>
                 </div>
@@ -559,8 +593,126 @@ function AlertasPanel({ sucursalId, alertas, onRefresh }: {
   )
 }
 
+// ── Pantalla de Login ─────────────────────────────────────────────
+function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
+  const [modo, setModo] = useState<'elegir' | 'especialista' | 'coordinador'>('elegir')
+  const [nombre, setNombre] = useState('')
+  const [area, setArea] = useState('')
+  const [error, setError] = useState('')
+
+  const handleLogin = () => {
+    if (!nombre.trim()) { setError('Ingresa tu nombre'); return }
+    if (modo === 'especialista' && !area) { setError('Selecciona tu área'); return }
+    onLogin({ rol: modo === 'especialista' ? 'especialista' : 'coordinador', nombre: nombre.trim(), area: area || undefined })
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <div className="w-full max-w-md">
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-black text-white tracking-tight">Ruta Digna</h1>
+          <p className="text-slate-400 text-sm mt-2 font-medium">Panel del Personal Clínico</p>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
+          {modo === 'elegir' ? (
+            <>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">¿Cómo deseas ingresar?</h2>
+              <p className="text-sm text-gray-500 mb-6">Selecciona tu rol para ver la vista correspondiente</p>
+              <div className="space-y-3">
+                <button onClick={() => setModo('especialista')}
+                  className="w-full p-4 rounded-2xl border-2 border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-all text-left group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl group-hover:bg-blue-200 transition-colors">🧑‍⚕️</div>
+                    <div>
+                      <p className="font-bold text-gray-900">Especialista</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Ve solo los pacientes de tu área de servicio</p>
+                    </div>
+                    <span className="ml-auto text-gray-300 group-hover:text-blue-400 text-xl">→</span>
+                  </div>
+                </button>
+                <button onClick={() => setModo('coordinador')}
+                  className="w-full p-4 rounded-2xl border-2 border-gray-100 hover:border-emerald-200 hover:bg-emerald-50 transition-all text-left group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-2xl group-hover:bg-emerald-200 transition-colors">🖥️</div>
+                    <div>
+                      <p className="font-bold text-gray-900">Coordinador General</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Vista completa de todas las áreas y colas</p>
+                    </div>
+                    <span className="ml-auto text-gray-300 group-hover:text-emerald-400 text-xl">→</span>
+                  </div>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setModo('elegir'); setError('') }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 mb-6 font-medium">
+                ← Volver
+              </button>
+              <h2 className="text-xl font-bold text-gray-900 mb-1">
+                {modo === 'especialista' ? '🧑‍⚕️ Acceso Especialista' : '🖥️ Acceso Coordinador'}
+              </h2>
+              <p className="text-sm text-gray-500 mb-6">
+                {modo === 'especialista' ? 'Ingresa tus datos para ver tu área' : 'Acceso al panel general de operaciones'}
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Tu nombre</label>
+                  <input
+                    type="text"
+                    value={nombre}
+                    onChange={e => { setNombre(e.target.value); setError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                    placeholder={modo === 'especialista' ? 'Dr. García' : 'Coordinador'}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50 outline-none text-sm transition-all"
+                    autoFocus
+                  />
+                </div>
+
+                {modo === 'especialista' && (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 block mb-2">Tu área de especialidad</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {ESTUDIOS_AREA.map(est => (
+                        <button key={est.key} onClick={() => { setArea(est.key); setError('') }}
+                          className={`p-3 rounded-xl border-2 text-sm font-semibold transition-all flex items-center gap-2 ${
+                            area === est.key
+                              ? `${est.color} text-white border-transparent shadow-lg`
+                              : 'border-gray-100 text-gray-700 hover:border-gray-200 bg-gray-50'
+                          }`}>
+                          <span>{est.icon}</span>
+                          <span className="text-xs">{est.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+
+                <button onClick={handleLogin}
+                  className={`w-full py-3.5 rounded-xl font-bold text-white transition-all ${
+                    modo === 'especialista' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}>
+                  Ingresar al panel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── App principal ─────────────────────────────────────────────────
+type TabId = 'colas' | 'pacientes' | 'alertas'
+
 export default function App() {
+  const [session, setSession] = useState<Session | null>(() => getSession())
   const [clinicas,   setClinicas]   = useState<any[]>([])
   const [visitas,    setVisitas]    = useState<any[]>([])
   const [alertas,    setAlertas]    = useState<any[]>([])
@@ -569,29 +721,33 @@ export default function App() {
   const [connected,  setConnected]  = useState(false)
   const [activeTab,  setActiveTab]  = useState<TabId>('colas')
 
+  const handleLogin = (s: Session) => { saveSession(s); setSession(s) }
+  const handleLogout = () => { clearSession(); setSession(null) }
+
   // Health check
   useEffect(() => {
-    checkHealth()
-      .then(() => setConnected(true))
-      .catch(() => setConnected(false))
+    checkHealth().then(() => setConnected(true)).catch(() => setConnected(false))
+    const iv = setInterval(() => checkHealth().then(() => setConnected(true)).catch(() => setConnected(false)), 15000)
+    return () => clearInterval(iv)
   }, [])
 
-  // Clínicas — polling 8s
+  // Clínicas y visitas solo para coordinador
   useEffect(() => {
+    if (session?.rol !== 'coordinador') return
     const f = () => getClinicas().then(d => setClinicas(Array.isArray(d) ? d : [])).catch(() => {})
     f(); const iv = setInterval(f, 8000); return () => clearInterval(iv)
-  }, [])
+  }, [session?.rol])
 
-  // Visitas activas — polling 5s
   useEffect(() => {
+    if (session?.rol !== 'coordinador') return
     const f = () => getVisitasActivas().then(d => setVisitas(Array.isArray(d) ? d : [])).catch(() => {})
     f(); const iv = setInterval(f, 5000); return () => clearInterval(iv)
-  }, [])
+  }, [session?.rol])
 
-  // Alertas — polling 10s
   const fetchAlertas = useCallback(() => {
+    if (session?.rol !== 'coordinador') return
     getAlertas(sucursalId).then(d => setAlertas(Array.isArray(d) ? d : [])).catch(() => setAlertas([]))
-  }, [sucursalId])
+  }, [sucursalId, session?.rol])
 
   useEffect(() => {
     fetchAlertas()
@@ -599,7 +755,15 @@ export default function App() {
     return () => clearInterval(iv)
   }, [fetchAlertas])
 
-  // Stats derivadas
+  // Sin sesión → login
+  if (!session) return <LoginScreen onLogin={handleLogin} />
+
+  // Especialista → vista dedicada
+  if (session.rol === 'especialista') {
+    return <EspecialistaView session={session} onLogout={handleLogout} connected={connected} />
+  }
+
+  // Coordinador → dashboard completo
   const datosSucursal = clinicas.filter((c: any) => c.id_sucursal === sucursalId)
   const totalEspera   = datosSucursal.reduce((s: number, c: any) => s + (c.pacientes_en_espera ?? 0), 0)
   const areaSaturada  = datosSucursal.reduce((max: any, c: any) =>
@@ -607,11 +771,8 @@ export default function App() {
   const tiempoPromedio = datosSucursal.length > 0
     ? Math.round(datosSucursal.reduce((s: number, c: any) => s + (c.tiempo_espera_estimado_min ?? c.tiempo_espera_promedio_min ?? 0), 0) / datosSucursal.length)
     : 0
-
-  // Impacto de alertas en tiempo
   const impactoAlertas = alertas.reduce((s: number, a: any) => s + (a.impacto_tiempo_min ?? 0), 0)
 
-  // Gráfica
   const chartData = {
     labels: datosSucursal.map((c: any) => c.estudio ?? c.nombre_estudio ?? '—'),
     datasets: [
@@ -621,130 +782,77 @@ export default function App() {
     ],
   }
   const chartOpts = {
-    indexAxis: 'y' as const,
-    responsive: true,
+    indexAxis: 'y' as const, responsive: true,
     plugins: { legend: { position: 'bottom' as const, labels: { font: { size: 11 }, boxWidth: 12 } } },
     scales: { x: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }, y: { stacked: true } },
   }
 
-  // Avanzar estudio
   const handleAvanzar = async (visitaId: string, veId: string, estatusActualId: number) => {
     const siguiente = getSiguienteEstatus(estatusActualId)
     if (!siguiente) return
     setAdvancing(veId)
     try {
-      await avanzarEstudio(visitaId, {
-        id_visita_estudio: veId,
-        nuevo_estatus:     siguiente.id,
-        nuevo_paso:        siguiente.paso,
-        nuevo_progreso:    siguiente.progreso,
-      })
-    } finally {
-      setAdvancing(null)
-    }
+      await avanzarEstudio(visitaId, { id_visita_estudio: veId, nuevo_estatus: siguiente.id, nuevo_paso: siguiente.paso, nuevo_progreso: siguiente.progreso })
+    } finally { setAdvancing(null) }
   }
 
-  // Cambiar prioridad
   const handleChangePriority = async (visitaId: string, tipo: string) => {
-    try {
-      await cambiarTipoPaciente(visitaId, tipo)
-    } catch (e) {
-      console.error(e)
-    }
+    try { await cambiarTipoPaciente(visitaId, tipo) } catch {}
   }
 
   const TABS: { id: TabId; label: string; count?: number }[] = [
-    { id: 'colas',        label: 'Colas por área' },
-    { id: 'pacientes',    label: 'Todos', count: visitas.length || undefined },
-    { id: 'especialista', label: 'Mi área' },
-    { id: 'alertas',      label: 'Alertas', count: alertas.length || undefined },
+    { id: 'colas',     label: 'Colas por área' },
+    { id: 'pacientes', label: 'Pacientes', count: visitas.length || undefined },
+    { id: 'alertas',   label: 'Alertas',   count: alertas.length || undefined },
   ]
 
   return (
     <div className="min-h-screen bg-slate-50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-
-      {/* ── Header ── */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Ruta Digna</h1>
-          <p className="text-xs text-gray-400">Panel del operador · Personal clínico</p>
+          <p className="text-xs text-gray-400">Coordinador: {session.nombre}</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-400'}`} />
             <span className="text-xs text-gray-500">{connected ? 'Conectado' : 'Sin conexión'}</span>
           </div>
-          <a
-            href={`${import.meta.env.VITE_FRONTEND_URL || 'http://localhost:3000'}/login`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-medium"
-          >
-            Abrir App Paciente ↗
+          <a href={`${import.meta.env.VITE_FRONTEND_URL || 'http://localhost:3000'}/login`}
+            target="_blank" rel="noopener noreferrer"
+            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-medium">
+            App Paciente ↗
           </a>
-          <select
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"
-            value={sucursalId}
-            onChange={e => setSucursalId(Number(e.target.value))}
-          >
-            {SUCURSALES.map(s => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
+          <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"
+            value={sucursalId} onChange={e => setSucursalId(Number(e.target.value))}>
+            {SUCURSALES.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
+          <button onClick={handleLogout}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">
+            Salir
+          </button>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
-
-        {/* ── Alert Banner ── */}
         <AlertBanner alertas={alertas} onViewAll={() => setActiveTab('alertas')} />
 
-        {/* ── StatsCards ── */}
         <div className="grid grid-cols-4 gap-4">
-          <StatsCard
-            label="Pacientes en espera"
-            value={totalEspera}
-            sub="Sucursal seleccionada"
-          />
-          <StatsCard
-            label="Área más saturada"
-            value={areaSaturada?.estudio ?? areaSaturada?.nombre_estudio ?? '—'}
-            sub={areaSaturada ? `${areaSaturada.pacientes_en_espera} en espera` : undefined}
-          />
-          <StatsCard
-            label="Tiempo promedio"
-            value={tiempoPromedio > 0
-              ? `~${Math.max(tiempoPromedio - 5, 5)}-${tiempoPromedio + 10} min`
-              : '—'}
-            sub="Rango estimado por área"
-          />
-          <StatsCard
-            label="Alertas activas"
-            value={alertas.length}
-            sub={impactoAlertas > 0 ? `+${impactoAlertas} min impacto total` : 'Sin impacto'}
-            accent={alertas.length > 0 ? 'text-red-600' : undefined}
-          />
+          <StatsCard label="Pacientes en espera" value={totalEspera} sub="Sucursal seleccionada" />
+          <StatsCard label="Área más saturada" value={areaSaturada?.estudio ?? areaSaturada?.nombre_estudio ?? '—'} sub={areaSaturada ? `${areaSaturada.pacientes_en_espera} en espera` : undefined} />
+          <StatsCard label="Tiempo promedio" value={tiempoPromedio > 0 ? `~${Math.max(tiempoPromedio - 5, 5)}-${tiempoPromedio + 10} min` : '—'} sub="Rango estimado por área" />
+          <StatsCard label="Alertas activas" value={alertas.length} sub={impactoAlertas > 0 ? `+${impactoAlertas} min impacto` : 'Sin impacto'} accent={alertas.length > 0 ? 'text-red-600' : undefined} />
         </div>
 
-        {/* ── Tabs ── */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
           {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`flex-1 text-sm py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
-                activeTab === tab.id
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
+                activeTab === tab.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                  activeTab === tab.id
-                    ? tab.id === 'alertas' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-200 text-gray-600'
-                }`}>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === tab.id ? (tab.id === 'alertas' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700') : 'bg-gray-200 text-gray-600'}`}>
                   {tab.count}
                 </span>
               )}
@@ -752,17 +860,13 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── Tab Content ── */}
         {activeTab === 'colas' && (
           <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-100">
             <h2 className="font-semibold text-gray-900 mb-4">Colas por área — {SUCURSALES.find(s => s.id === sucursalId)?.nombre}</h2>
             {datosSucursal.length > 0
               ? <Bar data={chartData} options={chartOpts} />
-              : <p className="text-sm text-gray-400 text-center py-10">Sin datos para esta sucursal</p>
-            }
-            <p className="text-xs text-gray-400 mt-3 text-center">
-              Tiempos son estimaciones que pueden variar por imprevistos o emergencias
-            </p>
+              : <p className="text-sm text-gray-400 text-center py-10">Sin datos para esta sucursal</p>}
+            <p className="text-xs text-gray-400 mt-3 text-center">Tiempos son estimaciones</p>
           </div>
         )}
 
@@ -771,51 +875,27 @@ export default function App() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-gray-900">Pacientes en proceso</h2>
               <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span>Prioridad:</span>
                 {TIPOS_PACIENTE.slice(0, 4).map(t => (
                   <span key={t.value} className="flex items-center gap-1">
-                    <span className={`w-2 h-2 rounded-full ${t.dot}`} />
-                    {t.label}
+                    <span className={`w-2 h-2 rounded-full ${t.dot}`} /> {t.label}
                   </span>
                 ))}
               </div>
             </div>
-
             <div className="space-y-3">
               {visitas.length > 0
                 ? visitas.map((v: any) => (
-                    <VisitaRow
-                      key={v.visita_id}
-                      visita={v}
-                      advancing={advancing}
-                      onAvanzar={handleAvanzar}
-                      onChangePriority={handleChangePriority}
-                    />
-                  ))
-                : (
-                  <p className="text-sm text-gray-400 text-center py-10">Sin visitas activas</p>
-                )
-              }
+                  <VisitaRow key={v.visita_id} visita={v} advancing={advancing}
+                    onAvanzar={handleAvanzar} onChangePriority={handleChangePriority} />
+                ))
+                : <p className="text-sm text-gray-400 text-center py-10">Sin visitas activas</p>}
             </div>
           </div>
         )}
 
-        {activeTab === 'especialista' && (
-          <EspecialistaPanel
-            advancing={advancing}
-            onAvanzar={handleAvanzar}
-            onChangePriority={handleChangePriority}
-          />
-        )}
-
         {activeTab === 'alertas' && (
-          <AlertasPanel
-            sucursalId={sucursalId}
-            alertas={alertas}
-            onRefresh={fetchAlertas}
-          />
+          <AlertasPanel sucursalId={sucursalId} alertas={alertas} onRefresh={fetchAlertas} />
         )}
-
       </div>
     </div>
   )

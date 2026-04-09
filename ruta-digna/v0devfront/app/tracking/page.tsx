@@ -110,10 +110,10 @@ function EstudioActual({ estudio, visitaId, cola }: { estudio: EstudioVisita; vi
              <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Tu Turno</p>
                 <p className="text-lg font-black text-slate-800">
-                  {visita?.posicion_en_cola != null
-                    ? visita.posicion_en_cola === 1
+                  {cola?.posicion != null
+                    ? cola.posicion === 1
                       ? <span className="text-emerald-600">¡Siguiente!</span>
-                      : `#${visita.posicion_en_cola}`
+                      : `#${cola.posicion}`
                     : "—"}
                 </p>
              </div>
