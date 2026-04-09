@@ -1,9 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 try:
-    from backend.routers import clinicas, visitas, ia, estudios, alertas, guias, resultados
+    from backend.routers import clinicas, visitas, ia, estudios, alertas, guias, resultados, especialistas
 except ImportError:
-    from routers import clinicas, visitas, ia, estudios, alertas, guias, resultados
+    from routers import clinicas, visitas, ia, estudios, alertas, guias, resultados, especialistas
 import os
 from dotenv import load_dotenv
 
@@ -28,8 +28,9 @@ app.include_router(visitas.router,   prefix="/visitas",   tags=["Visitas"])
 app.include_router(ia.router,        prefix="/ia",        tags=["IA"])
 app.include_router(estudios.router,  prefix="/estudios",  tags=["Estudios"])
 app.include_router(alertas.router,   prefix="/alertas",   tags=["Alertas"])
-app.include_router(guias.router,      prefix="/guias",      tags=["Guías"])
-app.include_router(resultados.router, prefix="/resultados", tags=["Resultados"])
+app.include_router(guias.router,          prefix="/guias",         tags=["Guías"])
+app.include_router(resultados.router,     prefix="/resultados",    tags=["Resultados"])
+app.include_router(especialistas.router,  prefix="/especialista",  tags=["Especialistas"])
 
 @app.get("/health", tags=["Sistema"])
 def health():

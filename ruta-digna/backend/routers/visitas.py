@@ -118,30 +118,63 @@ async def get_visitas_activas():
 
 
 @router.get("/especialista")
-async def get_visitas_especialista(estudio: str):
+async def get_visitas_especialista(estudio: str, id_sucursal: int | None = None):
     """
     Pacientes cuyo estudio ACTUAL coincide con el área del especialista.
+    Si se recibe id_sucursal, filtra solo los pacientes de esa sucursal.
     Retorna datos completos (con array de estudios) para avanzar estado y cambiar prioridad.
+
+    Usa visita_estudios.es_estudio_actual (misma fuente que la pantalla pública),
+    NO visitas.id_estudio_actual, para evitar desincronización.
     """
     try:
         sb = get_supabase()
 
-        # Buscar visitas activas cuyo estudio actual coincide
-        activas = sb.from_("v_visitas_activas").select("visita_id").ilike(
-            "estudio_actual", f"%{estudio}%"
-        ).execute()
+        # 1. Resolver id_estudio a partir del nombre del área (ilike, case-insensitive)
+        est_r = sb.table("estudios").select("id").ilike("nombre", f"%{estudio}%").execute()
+        if not est_r.data:
+            return []
+        id_estudios = [e["id"] for e in est_r.data]
 
-        if not activas.data:
+        # 2. Buscar visita_estudios cuyo estudio ACTUAL sea el del especialista
+        #    (misma lógica que la pantalla pública: es_estudio_actual = True)
+        ve_r = (
+            sb.table("visita_estudios")
+            .select("id_visita")
+            .in_("id_estudio", id_estudios)
+            .eq("es_estudio_actual", True)
+            .execute()
+        )
+        if not ve_r.data:
             return []
 
+        visita_ids = list({r["id_visita"] for r in ve_r.data})
+
+        # 3. Filtrar: solo visitas en_proceso y, si aplica, de la sucursal del especialista
+        visitas_q = (
+            sb.table("visitas")
+            .select("id")
+            .in_("id", visita_ids)
+            .eq("estatus", "en_proceso")
+        )
+        if id_sucursal:
+            visitas_q = visitas_q.eq("id_sucursal", id_sucursal)
+
+        vis_r = visitas_q.execute()
+        if not vis_r.data:
+            return []
+
+        valid_ids = [r["id"] for r in vis_r.data]
+
+        # 4. Obtener estado completo de cada visita
         PRIO = {"urgente": 1, "embarazada": 2, "adulto_mayor": 3,
                 "discapacidad": 4, "con_cita": 5, "sin_cita": 6}
 
         visitas = []
-        for row in activas.data:
+        for vid in valid_ids:
             try:
                 estado = sb.rpc("fn_obtener_estado_visita",
-                                {"p_visita_id": row["visita_id"]}).execute()
+                                {"p_visita_id": vid}).execute()
                 if estado.data:
                     visitas.append(estado.data)
             except Exception:
@@ -154,6 +187,73 @@ async def get_visitas_especialista(estudio: str):
         return visitas
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@router.get("/atendidos")
+async def get_visitas_atendidas(estudio: str, id_sucursal: int | None = None):
+    """
+    Visitas donde el área del especialista ya fue VERIFICADA (id_estatus=12) hoy.
+    No requiere que la visita esté 'finalizada' globalmente — basta con que
+    el estudio del especialista haya sido completado.
+    """
+    try:
+        sb = get_supabase()
+        from datetime import date
+
+        est_r = sb.table("estudios").select("id").ilike("nombre", f"%{estudio}%").execute()
+        if not est_r.data:
+            return []
+        id_estudios = [e["id"] for e in est_r.data]
+
+        # Buscar visita_estudios donde el estudio del especialista ya fue verificado
+        # id_estatus = 12 → VERIFICADO (el especialista lo finalizó)
+        ve_r = (
+            sb.table("visita_estudios")
+            .select("id_visita")
+            .in_("id_estudio", id_estudios)
+            .eq("id_estatus", 12)
+            .execute()
+        )
+        if not ve_r.data:
+            return []
+
+        visita_ids = list({r["id_visita"] for r in ve_r.data})
+
+        # Filtrar: visitas de hoy (por timestamp_llegada) — sin importar si la
+        # visita completa está finalizada (puede tener más estudios pendientes)
+        hoy_inicio = f"{date.today().isoformat()}T00:00:00"
+        q = (
+            sb.table("visitas")
+            .select("id, id_paciente, id_sucursal, estatus, tipo_paciente, timestamp_llegada, timestamp_fin_visita")
+            .in_("id", visita_ids)
+            .gte("timestamp_llegada", hoy_inicio)
+            .order("timestamp_llegada", desc=True)
+        )
+        if id_sucursal:
+            q = q.eq("id_sucursal", id_sucursal)
+
+        vis_r = q.execute()
+        if not vis_r.data:
+            return []
+
+        # Enriquecer con nombre del paciente y resultados ya subidos
+        visitas = []
+        for v in vis_r.data:
+            pac = sb.table("pacientes").select("nombre").eq("id", v["id_paciente"]).single().execute()
+            res = sb.table("resultados_estudios").select("id, nombre_archivo, tipo_estudio, url_archivo, created_at, subido_por").eq("id_visita", v["id"]).order("created_at", desc=True).execute()
+            visitas.append({
+                "visita_id":            v["id"],
+                "paciente":             pac.data["nombre"] if pac.data else "Desconocido",
+                "tipo_paciente":        v["tipo_paciente"],
+                "timestamp_llegada":    v["timestamp_llegada"],
+                "timestamp_fin_visita": v["timestamp_fin_visita"],
+                "resultados":           res.data or [],
+            })
+
+        return visitas
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 
 
 @router.patch("/{visita_id}/avanzar")
@@ -221,6 +321,139 @@ async def cambiar_tipo_paciente(visita_id: str, body: CambiarTipoPacienteRequest
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.get("/pantalla/{id_sucursal}")
+async def get_pantalla_sucursal(id_sucursal: int):
+    """
+    Datos para la Pantalla Pública de Turnos proyectada en monitores de la sucursal.
+    Retorna:
+      - llamando: turnos en INICIO_TOMA (9) — se acaba de llamar al paciente
+      - en_espera: turnos en PAGADO (1) — próximos en la fila (máx 10)
+    """
+    try:
+        sb = get_supabase()
+
+        # ── Nombre de la sucursal ────────────────────────────────────
+        suc_r = sb.table("sucursales").select("nombre").eq("id", id_sucursal).single().execute()
+        sucursal_nombre = suc_r.data["nombre"] if suc_r.data else f"Sucursal {id_sucursal}"
+
+        # ── Visitas activas de esta sucursal (con nombre del paciente) ──
+        visitas_r = (
+            sb.table("visitas")
+            .select("id, tipo_paciente, timestamp_llegada, pacientes:id_paciente(nombre)")
+            .eq("id_sucursal", id_sucursal)
+            .eq("estatus", "en_proceso")
+            .order("timestamp_llegada")
+            .execute()
+        )
+        visitas_list = visitas_r.data or []
+        if not visitas_list:
+            return {"sucursal": sucursal_nombre, "llamando": [], "en_espera": []}
+
+        visita_ids  = [v["id"] for v in visitas_list]
+        visitas_map = {v["id"]: v for v in visitas_list}
+
+        # ── Estudio actual + estatus por visita ──────────────────────
+        ve_r = (
+            sb.table("visita_estudios")
+            .select("id, id_visita, id_estudio, id_estatus")
+            .in_("id_visita", visita_ids)
+            .eq("es_estudio_actual", True)
+            .execute()
+        )
+        ve_list = ve_r.data or []
+
+        # ── Nombres de estudios ──────────────────────────────────────
+        estudio_ids = list({ve["id_estudio"] for ve in ve_list})
+        estudios_r  = sb.table("estudios").select("id, nombre").in_("id", estudio_ids).execute()
+        estudios_map = {e["id"]: e["nombre"] for e in (estudios_r.data or [])}
+
+        # ── Guías de navegación para mostrar ubicación ───────────────
+        guias_r = (
+            sb.table("guias_navegacion_sucursal")
+            .select("id_estudio, nombre_area, ubicacion, piso, instrucciones")
+            .eq("id_sucursal", id_sucursal)
+            .eq("activa", True)
+            .execute()
+        )
+        guias_map = {g["id_estudio"]: g for g in (guias_r.data or [])}
+
+        # ── Abreviaciones de turno por área (3 letras fijas) ────────
+        AREA_ABREV = {
+            "LABORATORIO": "LAB", "ULTRASONIDO": "ULT", "RAYOS X": "RXX",
+            "TOMOGRAFÍA":  "TOM", "ELECTROCARDIOGRAMA": "ECG",
+            "MASTOGRAFÍA": "MAS", "DENSITOMETRÍA": "DEN",
+        }
+
+        # ── Construir códigos de turno secuenciales por área ─────────
+        estudio_counters: dict[int, int] = {}
+        llamando: list[dict] = []
+        en_espera: list[dict] = []
+
+        ve_map = {ve["id_visita"]: ve for ve in ve_list}
+
+        PRIO = {"urgente": 1, "embarazada": 2, "adulto_mayor": 3,
+                "discapacidad": 4, "con_cita": 5, "sin_cita": 6}
+
+        for visita in sorted(visitas_list, key=lambda v: (
+            PRIO.get(v["tipo_paciente"], 6), v["timestamp_llegada"]
+        )):
+            ve = ve_map.get(visita["id"])
+            if not ve:
+                continue
+
+            id_estudio  = ve["id_estudio"]
+            id_estatus  = ve["id_estatus"]
+
+            # Solo mostramos PAGADO(1) y INICIO_TOMA(9)
+            if id_estatus not in (1, 9):
+                continue
+
+            nombre_estudio = estudios_map.get(id_estudio, "ÁREA")
+            nombre_upper   = nombre_estudio.upper()
+            # Abreviación de 3 letras conocida, o primeras 3 letras del nombre real
+            abrev = next(
+                (v for k, v in AREA_ABREV.items() if k in nombre_upper),
+                nombre_upper[:3].strip() if nombre_upper else "ARE",
+            )
+
+            estudio_counters[id_estudio] = estudio_counters.get(id_estudio, 0) + 1
+            seq = estudio_counters[id_estudio]
+            turno_codigo = f"{abrev}-{seq:03d}"
+
+            guia = guias_map.get(id_estudio, {})
+
+            # Nombre del paciente desde el join
+            pac_data   = visita.get("pacientes") or {}
+            pac_nombre = pac_data.get("nombre", "") if isinstance(pac_data, dict) else ""
+
+            entry = {
+                "turno_codigo":      turno_codigo,
+                "ve_id":             ve["id"],
+                "nombre_paciente":   pac_nombre,
+                "tipo_paciente":     visita["tipo_paciente"],
+                "area":              guia.get("nombre_area") or nombre_estudio,
+                "id_estudio":        id_estudio,
+                "ubicacion":         guia.get("ubicacion", ""),
+                "piso":              guia.get("piso"),
+                "instrucciones":     guia.get("instrucciones", ""),
+                "timestamp_llegada": visita["timestamp_llegada"],
+            }
+
+            if id_estatus == 9:
+                llamando.append(entry)
+            else:
+                en_espera.append(entry)
+
+        return {
+            "sucursal": sucursal_nombre,
+            "llamando": llamando,
+            "en_espera": en_espera[:10],
+        }
+
     except Exception as e:
         raise HTTPException(500, str(e))
 

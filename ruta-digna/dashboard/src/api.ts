@@ -15,8 +15,33 @@ export const getClinicaEstado   = (id: number) => api.get(`/clinicas/${id}/estad
 // ── Visitas ───────────────────────────────────────────────────
 export const getVisitasActivas  = () => api.get('/visitas/activas').then(r => r.data)
 export const getVisitaStatus    = (id: string) => api.get(`/visitas/status/${id}`).then(r => r.data)
-export const getVisitasEspecialista = (estudio: string) =>
-  api.get('/visitas/especialista', { params: { estudio } }).then(r => r.data)
+export const getVisitasEspecialista = (estudio: string, id_sucursal?: number) =>
+  api.get('/visitas/especialista', { params: { estudio, ...(id_sucursal ? { id_sucursal } : {}) } }).then(r => r.data)
+
+export const getVisitasAtendidas = (estudio: string, id_sucursal?: number) =>
+  api.get('/visitas/atendidos', { params: { estudio, ...(id_sucursal ? { id_sucursal } : {}) } }).then(r => r.data)
+
+// ── Especialistas ─────────────────────────────────────────────
+export const loginEspecialista = (id_empleado: string, pin: string) =>
+  api.post('/especialista/login', { id_empleado, pin }).then(r => r.data)
+
+export const getSucursalesEspecialista = () =>
+  api.get('/especialista/sucursales').then(r => r.data)
+
+export const getAreasEspecialista = () =>
+  api.get('/especialista/areas').then(r => r.data)
+
+export const registrarEspecialista = (body: {
+  nombre:      string
+  id_empleado: string
+  pin:         string
+  id_sucursal: number
+  id_estudio:  number
+  rol:         'especialista' | 'admin'
+}) => api.post('/especialista/registrar', body).then(r => r.data)
+
+export const getEspecialistasSucursal = () =>
+  api.get('/especialista/lista').then(r => r.data)
 
 export const avanzarEstudio = (visitaId: string, body: {
   id_visita_estudio: string
@@ -29,8 +54,10 @@ export const cambiarTipoPaciente = (visitaId: string, tipo_paciente: string) =>
   api.patch(`/visitas/${visitaId}/tipo-paciente`, { tipo_paciente }).then(r => r.data)
 
 // ── Alertas ───────────────────────────────────────────────────
-export const getAlertas = (idSucursal: number) =>
-  api.get(`/alertas/${idSucursal}`).then(r => r.data)
+export const getAlertas = (idSucursal: number, idEstudio?: number) =>
+  api.get(`/alertas/${idSucursal}`, {
+    params: idEstudio != null ? { id_estudio: idEstudio } : {}
+  }).then(r => r.data)
 
 export const crearAlerta = (body: {
   id_sucursal:        number
@@ -56,6 +83,10 @@ export const getResultadosVisita = (visitaId: string) =>
 
 export const getHistorialPaciente = (visitaId: string) =>
   api.get(`/resultados/historial/${visitaId}`).then(r => r.data)
+
+// ── Pantalla pública ──────────────────────────────────────────
+export const getPantallaData = (idSucursal: number) =>
+  api.get(`/visitas/pantalla/${idSucursal}`).then(r => r.data)
 
 // ── Guías ─────────────────────────────────────────────────────
 export const getGuiasSucursal = (idSucursal: number) =>

@@ -50,13 +50,24 @@ async def _interpretar_con_ia(file_bytes: bytes, media_type: str, tipo_estudio: 
         return f"Interpretación no disponible temporalmente: {str(e)}"
 
 
+def _ensure_bucket(sb):
+    """Crea el bucket 'resultados' si no existe todavía."""
+    try:
+        sb.storage.create_bucket("resultados", options={"public": True})
+    except Exception:
+        pass  # Ya existe o sin permisos suficientes — continuar igual
+
+
 @router.post("/subir")
 async def subir_resultado(
     file: UploadFile = File(...),
     visita_id: str = Form(...),
     tipo_estudio: str = Form(default=""),
     especialista: str = Form(default=""),
+    analizar_con_ia: str = Form(default="true"),   # "true" | "false"
 ):
+    usar_ia = analizar_con_ia.lower() not in ("false", "0", "no")
+
     media_type = file.content_type or ""
     if media_type not in ALLOWED_TYPES:
         raise HTTPException(400, f"Tipo no permitido. Use: JPEG, PNG o PDF.")
@@ -66,6 +77,9 @@ async def subir_resultado(
         raise HTTPException(400, "Archivo demasiado grande (máx. 10 MB)")
 
     sb = get_supabase()
+
+    # Asegurar que el bucket existe antes de subir
+    _ensure_bucket(sb)
 
     # Obtener id_paciente desde la visita
     v = sb.table("visitas").select("id_paciente").eq("id", visita_id).single().execute()
@@ -86,23 +100,26 @@ async def subir_resultado(
     except Exception as e:
         raise HTTPException(500, f"Error subiendo archivo al storage: {str(e)}")
 
-    # Interpretación IA
-    interpretacion = await _interpretar_con_ia(file_bytes, media_type, tipo_estudio)
+    # Interpretación IA solo si se solicita (lado del paciente)
+    interpretacion = ""
+    if usar_ia:
+        interpretacion = await _interpretar_con_ia(file_bytes, media_type, tipo_estudio)
 
     # Guardar en BD
     resultado_id = str(uuid.uuid4())
     sb.table("resultados_estudios").insert({
-        "id":              resultado_id,
-        "id_visita":       visita_id,
-        "id_paciente":     paciente_id,
-        "nombre_archivo":  file.filename or f"resultado.{ext}",
-        "url_archivo":     url,
-        "tipo_estudio":    tipo_estudio,
+        "id":                resultado_id,
+        "id_visita":         visita_id,
+        "id_paciente":       paciente_id,
+        "nombre_archivo":    file.filename or f"resultado.{ext}",
+        "url_archivo":       url,
+        "tipo_estudio":      tipo_estudio,
         "interpretacion_ia": interpretacion,
-        "subido_por":      especialista,
+        "subido_por":        especialista,
     }).execute()
 
     return {"id": resultado_id, "url": url, "nombre": file.filename, "interpretacion_ia": interpretacion}
+
 
 
 @router.get("/visita/{visita_id}")

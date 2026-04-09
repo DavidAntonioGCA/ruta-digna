@@ -1,24 +1,28 @@
 from fastapi import APIRouter, HTTPException
 try:
-    from backend.models.schemas import RecomendarRequest, ChatRequest, ExplicarRequest, IAResponse
+    from backend.models.schemas import RecomendarRequest, ChatRequest, ChatResultadoRequest, ExplicarRequest, IAResponse
     from backend.services.claude_service import (
         ClaudeAPIError,
         PROMPT_ASISTENTE,
         PROMPT_EXPLICADOR,
         PROMPT_EXTRACTOR,
+        PROMPT_CHAT_RESULTADO,
         call_claude,
     )
     from backend.services.supabase_client import get_supabase
+    from backend.services.recomendacion import seleccionar_mejor_sucursal, DatosSucursal
 except ImportError:
-    from models.schemas import RecomendarRequest, ChatRequest, ExplicarRequest, IAResponse
+    from models.schemas import RecomendarRequest, ChatRequest, ChatResultadoRequest, ExplicarRequest, IAResponse
     from services.claude_service import (
         ClaudeAPIError,
         PROMPT_ASISTENTE,
         PROMPT_EXPLICADOR,
         PROMPT_EXTRACTOR,
+        PROMPT_CHAT_RESULTADO,
         call_claude,
     )
     from services.supabase_client import get_supabase
+    from services.recomendacion import seleccionar_mejor_sucursal, DatosSucursal
 import json
 
 router = APIRouter()
@@ -205,20 +209,65 @@ async def recomendar_sucursal(body: RecomendarRequest):
         else:
             confianza = "alta"
 
-        # Paso 3: Recomendar sucursales con score REAL desde la DB
-        # - tiempo_total_min usa fn_calcular_tiempo_espera (colas + consultorios + históricos)
-        # - score combina tiempo (0.6) + distancia (0.4)
+        # Paso 3: Obtener candidatos de Supabase
+        # El RPC filtra sucursales con al menos 1 estudio disponible y calcula
+        # tiempo_total_min (espera en clínica). No incluye lat/lon ni traslado.
         rec = sb.rpc("fn_recomendar_sucursales", {
             "p_ids_estudios": ids_estudios,
-            "p_lat_usuario": body.lat,
-            "p_lon_usuario": body.lon,
-            "p_limite": 5
+            "p_lat_usuario":  body.lat,
+            "p_lon_usuario":  body.lon,
+            "p_limite":       30
         }).execute()
-        sucursales = rec.data or []
-        if not sucursales:
+        sucursales_rpc = rec.data or []
+        if not sucursales_rpc:
             raise HTTPException(404, "No hay sucursales disponibles para esos estudios")
 
-        # Paso 4: Calcular orden sugerido para mostrar al paciente
+        # Paso 4: Enriquecer con latitud/longitud (el RPC no las devuelve)
+        ids_candidatos = [s["id_sucursal"] for s in sucursales_rpc]
+        coords_res = sb.table("sucursales") \
+            .select("id, latitud, longitud") \
+            .in_("id", ids_candidatos) \
+            .execute()
+        coords_map: dict[int, tuple] = {
+            r["id"]: (r.get("latitud"), r.get("longitud"))
+            for r in (coords_res.data or [])
+        }
+
+        # Paso 5: Construir DatosSucursal y delegar a la función pura
+        datos_sucursales = [
+            DatosSucursal(
+                id_sucursal       = s["id_sucursal"],
+                nombre_sucursal   = s["nombre_sucursal"],
+                direccion         = s["direccion"],
+                ciudad            = s["ciudad"],
+                latitud           = coords_map.get(s["id_sucursal"], (None, None))[0],
+                longitud          = coords_map.get(s["id_sucursal"], (None, None))[1],
+                tiempo_espera_min = s["tiempo_total_min"] if s.get("tiempo_total_min") and s["tiempo_total_min"] > 0 else None,
+                estudios_disponibles = s.get("estudios_disponibles", 0),
+            )
+            for s in sucursales_rpc
+        ]
+
+        evaluadas, razon_recomendada = seleccionar_mejor_sucursal(
+            datos_sucursales, body.lat, body.lon
+        )
+
+        def resultado_a_dict(r, es_recomendada: bool) -> dict:
+            return {
+                "id_sucursal":          r.id_sucursal,
+                "nombre_sucursal":      r.nombre_sucursal,
+                "direccion":            r.direccion,
+                "ciudad":               r.ciudad,
+                "distancia_km":         r.distancia_km,
+                "tiempo_traslado_min":  r.tiempo_traslado_min,
+                "tiempo_espera_min":    r.tiempo_espera_min,
+                "tiempo_total_min":     r.tiempo_total_min if r.tiempo_total_min > 0 else None,
+                "score":                r.score,
+                "estudios_disponibles": r.estudios_disponibles,
+                **({"razon_recomendacion": r.razon_recomendacion} if es_recomendada else {}),
+            }
+
+        # Paso 6: Calcular orden sugerido de estudios
         orden = sb.rpc("fn_calcular_orden_optimo_estudios", {
             "p_ids_estudios": ids_estudios
         }).execute()
@@ -234,25 +283,17 @@ async def recomendar_sucursal(body: RecomendarRequest):
                     "orden":                item["orden_calculado"],
                     "nombre":               est.data["nombre"],
                     "requiere_preparacion": est.data["requiere_preparacion"],
-                    "preparacion":          est.data["preparacion_instrucciones"]
+                    "preparacion":          est.data["preparacion_instrucciones"],
                 })
 
-        # Normalizar tiempo_total_min: si es 0 o None, convertir a None para que el frontend
-        # muestre "Sin datos" en lugar de "~0 min"
-        def normalizar_sucursal(s: dict) -> dict:
-            t = s.get("tiempo_total_min")
-            return {**s, "tiempo_total_min": t if (t and t > 0) else None}
-
-        sucursales_norm = [normalizar_sucursal(s) for s in sucursales]
-
         return {
-            "sucursal_recomendada":      sucursales_norm[0],
-            "alternativas":              sucursales_norm[1:],
-            "estudios_detectados":       estudios_detectados,
-            "ids_estudios_detectados":   ids_estudios,
-            "orden_sugerido":            orden_con_nombres,
-            "confianza":                 confianza,
-            "aviso_contenido":           aviso_contenido,
+            "sucursal_recomendada":    resultado_a_dict(evaluadas[0], es_recomendada=True),
+            "alternativas":            [resultado_a_dict(r, es_recomendada=False) for r in evaluadas[1:]],
+            "estudios_detectados":     estudios_detectados,
+            "ids_estudios_detectados": ids_estudios,
+            "orden_sugerido":          orden_con_nombres,
+            "confianza":               confianza,
+            "aviso_contenido":         aviso_contenido,
         }
 
     except HTTPException:
@@ -292,6 +333,63 @@ async def chat_asistente(body: ChatRequest):
         system = PROMPT_ASISTENTE.replace("{estado_visita}", estado_json)
 
         reply = await call_claude(system, body.mensaje, historial=body.historial)
+        return IAResponse(reply=reply)
+
+    except ClaudeAPIError as e:
+        raise HTTPException(502, f"Claude falló ({e.status_code}): {e.message}")
+    except Exception as e:
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
+
+
+@router.post("/chat-resultado", response_model=IAResponse)
+async def chat_resultado(body: ChatResultadoRequest):
+    """
+    Chat especializado en interpretar resultados médicos.
+    Soporta archivo adjunto (imagen o PDF) para que la IA lo lea directamente.
+    """
+    try:
+        system = PROMPT_CHAT_RESULTADO.replace("{contexto_resultado}", body.contexto_resultado)
+
+        # Construir el mensaje del usuario con o sin archivo
+        if body.archivo_base64 and body.media_type:
+            es_pdf = "pdf" in body.media_type.lower()
+            es_imagen = body.media_type.lower() in ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+            if es_pdf:
+                # Claude soporta PDFs nativamente con type="document"
+                contenido_usuario = [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": body.archivo_base64,
+                        }
+                    },
+                    {"type": "text", "text": body.mensaje}
+                ]
+            elif es_imagen:
+                contenido_usuario = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": body.media_type,
+                            "data": body.archivo_base64,
+                        }
+                    },
+                    {"type": "text", "text": body.mensaje}
+                ]
+            else:
+                # Tipo no soportado → solo texto
+                contenido_usuario = body.mensaje
+
+            user_message = {"role": "user", "content": contenido_usuario}
+        else:
+            # Sin archivo: solo texto
+            user_message = body.mensaje
+
+        reply = await call_claude(system, user_message, historial=body.historial, max_tokens=1500)
         return IAResponse(reply=reply)
 
     except ClaudeAPIError as e:

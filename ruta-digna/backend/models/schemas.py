@@ -48,6 +48,14 @@ class ChatRequest(BaseModel):
     mensaje:   str
     historial: List[dict] = Field(default_factory=list)
 
+class ChatResultadoRequest(BaseModel):
+    """Chat especializado para interpretar un resultado médico específico."""
+    contexto_resultado: str          # nombre, tipo y fecha del resultado
+    mensaje:            str
+    historial:          List[dict] = Field(default_factory=list)
+    archivo_base64:     Optional[str] = None   # contenido del archivo en base64
+    media_type:         Optional[str] = None   # image/jpeg, image/png, application/pdf
+
 class ExplicarRequest(BaseModel):
     imagen_base64: Optional[str] = None
     media_type:    Optional[str] = None
@@ -79,6 +87,30 @@ class RegistrarPacienteRequest(BaseModel):
     nombre:   str
     telefono: str
     email:    Optional[str] = None
+
+# ── Especialistas ─────────────────────────────────────────────
+
+class RegistrarEspecialistaRequest(BaseModel):
+    nombre:      str
+    id_empleado: str                    # número de empleado SD
+    pin:         str = Field(min_length=4, max_length=4, pattern=r'^\d{4}$')
+    id_sucursal: int
+    id_estudio:  int                    # área que atiende
+    rol:         Literal['especialista', 'admin'] = 'especialista'
+
+class LoginEspecialistaRequest(BaseModel):
+    id_empleado: str
+    pin:         str
+
+class EspecialistaResponse(BaseModel):
+    especialista_id: str
+    nombre:          str
+    id_empleado:     str
+    rol:             str
+    id_sucursal:     int
+    nombre_sucursal: Optional[str] = None
+    id_estudio:      int
+    nombre_estudio:  Optional[str] = None
 
 # ── Guías de navegación ───────────────────────────────────────
 

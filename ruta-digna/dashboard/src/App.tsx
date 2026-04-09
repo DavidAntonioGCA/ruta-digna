@@ -7,7 +7,9 @@ import {
 import {
   checkHealth, getClinicas, getVisitasActivas, avanzarEstudio,
   cambiarTipoPaciente, getAlertas, crearAlerta, resolverAlerta,
-  getVisitasEspecialista, subirResultado, getResultadosVisita, getHistorialPaciente
+  getVisitasEspecialista, getVisitasAtendidas, subirResultado, getResultadosVisita, getHistorialPaciente,
+  loginEspecialista, getSucursalesEspecialista, getAreasEspecialista,
+  registrarEspecialista, getEspecialistasSucursal,
 } from './api'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
@@ -19,11 +21,11 @@ const FLUJO_DEMO = [
   { id: 10, nombre: 'FIN_TOMA',    label: 'Terminar cita',  paso: 'fin_toma',    progreso: 66  },
   { id: 12, nombre: 'VERIFICADO',  label: '',               paso: 'finalizado',  progreso: 100 },
 ]
-// Flujo simplificado para la vista de especialista: solo 2 acciones
+// Flujo del especialista: 2 acciones — el resultado se sube desde el historial de atendidos
 const FLUJO_ESPECIALISTA: Record<number, { id: number; label: string; paso: string; progreso: number } | null> = {
   1:  { id: 9,  label: 'Iniciar cita',  paso: 'inicio_toma', progreso: 50  }, // PAGADO → INICIO_TOMA
-  9:  { id: 12, label: 'Terminar cita', paso: 'finalizado',  progreso: 100 }, // INICIO_TOMA → VERIFICADO
-  10: { id: 12, label: 'Terminar cita', paso: 'finalizado',  progreso: 100 }, // FIN_TOMA → VERIFICADO (por si acaso)
+  9:  { id: 12, label: 'Finalizar',     paso: 'finalizado',  progreso: 100 }, // INICIO_TOMA → VERIFICADO
+  10: { id: 12, label: 'Finalizar',     paso: 'finalizado',  progreso: 100 }, // FIN_TOMA → VERIFICADO (por si acaso)
   12: null, // ya terminó
 }
 function getSiguienteEstatus(id: number) {
@@ -61,13 +63,7 @@ const SEVERIDADES = [
   { value: 'alta',    label: 'Alta',    color: 'bg-orange-100 text-orange-700 border-orange-200' },
   { value: 'critica', label: 'Crítica', color: 'bg-red-100 text-red-700 border-red-200'          },
 ]
-const SUCURSALES = [
-  { id: 1,  nombre: 'Culiacán'   },
-  { id: 5,  nombre: 'Los Mochis' },
-  { id: 6,  nombre: 'Mazatlán'   },
-  { id: 9,  nombre: 'Mexicali'   },
-  { id: 12, nombre: 'Tijuana'    },
-]
+// Sucursales se cargan dinámicamente del backend (ver App component)
 const ESTUDIOS_AREA = [
   { key: 'LABORATORIO',        label: 'Laboratorio',   icon: '🧪', color: 'bg-blue-600',   light: 'bg-blue-50 text-blue-700 border-blue-200'   },
   { key: 'ULTRASONIDO',        label: 'Ultrasonido',   icon: '📡', color: 'bg-emerald-600', light: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -80,9 +76,15 @@ const ESTUDIOS_AREA = [
 
 // ── Session ───────────────────────────────────────────────────────
 interface Session {
-  rol: 'especialista' | 'coordinador'
-  nombre: string
-  area?: string
+  rol:             'especialista' | 'coordinador'
+  nombre:          string
+  area?:           string   // nombre del estudio, ej: "LABORATORIO"
+  // Campos del especialista autenticado (solo rol === 'especialista')
+  especialista_id?: string
+  id_empleado?:     string
+  id_sucursal?:     number
+  nombre_sucursal?: string
+  id_estudio?:      number
 }
 
 function getSession(): Session | null {
@@ -239,6 +241,7 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
   const pendientes = estudios.filter((e: any) => !e.es_estado_final && !e.es_actual)
   const esUrgente = visita.tipo_paciente === 'urgente'
 
+
   return (
     <div className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden transition-all ${
       esUrgente ? 'border-red-200 shadow-red-50' : posicion === 1 ? 'border-blue-200 shadow-blue-50' : 'border-gray-100'
@@ -335,31 +338,49 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
           </div>
         </div>
 
-        {/* Botón avanzar — flujo simplificado para especialista */}
+        {/* ── Botones de turno: Llamar · Finalizar ── */}
         {actual && (() => {
           const estatusId = estatusToId(actual.estatus)
-          const siguiente = getSiguienteEspecialista(estatusId)
-          if (!siguiente) return (
-            <div className="mt-4 text-center text-xs text-green-600 font-semibold bg-green-50 py-2 rounded-xl">
+          const isProcessing = advancing === actual.id_visita_estudio
+          const yaFinalizado = estatusId === 12
+          const puedeIniciar   = estatusId === 1
+          const puedeFinalizar = estatusId === 9 || estatusId === 10
+
+          if (yaFinalizado) return (
+            <div className="mt-4 text-center text-xs text-green-600 font-semibold bg-green-50 py-2.5 rounded-xl border border-green-100">
               ✓ Cita finalizada
             </div>
           )
-          const esCitaActiva = estatusId === 9 || estatusId === 10
+
           return (
-            <button disabled={advancing !== null}
-              onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
-              className={`w-full mt-4 text-sm font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
-                esCitaActiva
-                  ? 'bg-red-600 hover:bg-red-700 text-white'
-                  : esUrgente
-                  ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}>
-              {advancing === actual.id_visita_estudio
-                ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Procesando...</>
-                : <>{siguiente.label}</>
-              }
-            </button>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                disabled={!puedeIniciar || isProcessing}
+                onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', 1)}
+                className={`py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-1 border-2 ${
+                  puedeIniciar && !isProcessing
+                    ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200'
+                    : estatusId > 1
+                    ? 'bg-blue-50 border-blue-100 text-blue-300 cursor-default'
+                    : 'bg-gray-50 border-gray-100 text-gray-300 cursor-default'
+                }`}
+              >
+                <span className="text-base">{estatusId > 1 ? '✓' : '📣'}</span>
+                Iniciar cita
+              </button>
+              <button
+                disabled={!puedeFinalizar || isProcessing}
+                onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
+                className={`py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-1 border-2 ${
+                  puedeFinalizar && !isProcessing
+                    ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
+                    : 'bg-gray-50 border-gray-100 text-gray-300 cursor-default'
+                }`}
+              >
+                <span className="text-base">✅</span>
+                Finalizar
+              </button>
+            </div>
           )
         })()}
 
@@ -417,16 +438,17 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
                 fd.append('visita_id', visita.visita_id)
                 fd.append('tipo_estudio', uploadTipo)
                 fd.append('especialista', especialistaNombre)
+                fd.append('analizar_con_ia', 'false')
                 try {
                   await subirResultado(fd)
-                  setUploadMsg({ ok: true, text: '✓ Resultado subido. La IA ya interpretó el archivo.' })
+                  setUploadMsg({ ok: true, text: '✓ Resultado subido correctamente.' })
                   setUploadFile(null); setUploadTipo('')
                 } catch (err: any) {
                   setUploadMsg({ ok: false, text: `Error: ${err?.response?.data?.detail ?? err.message}` })
                 } finally { setUploading(false) }
               }}
               className="w-full py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
-              {uploading ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Subiendo y analizando...</> : 'Subir y analizar con IA'}
+              {uploading ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Subiendo...</> : 'Subir resultado'}
             </button>
             {uploadMsg && (
               <p className={`text-xs font-semibold text-center ${uploadMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
@@ -477,23 +499,52 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
 function EspecialistaView({ session, onLogout, connected }: {
   session: Session; onLogout: () => void; connected: boolean
 }) {
-  const [pacientes, setPacientes] = useState<any[]>([])
-  const [advancing, setAdvancing] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [pacientes,  setPacientes]  = useState<any[]>([])
+  const [atendidos,  setAtendidos]  = useState<any[]>([])
+  const [advancing,  setAdvancing]  = useState<string | null>(null)
+  const [loading,    setLoading]    = useState(true)
+  const [alertas,    setAlertas]    = useState<any[]>([])
+  const [activeTab,  setActiveTab]  = useState<'pacientes' | 'atendidos' | 'alertas'>('pacientes')
   const areaInfo = ESTUDIOS_AREA.find(e => e.key === session.area) || ESTUDIOS_AREA[0]
 
   const fetchPacientes = useCallback(() => {
     if (!session.area) return
-    getVisitasEspecialista(session.area)
+    getVisitasEspecialista(session.area, session.id_sucursal)
       .then(data => { setPacientes(Array.isArray(data) ? data : []); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [session.area])
+  }, [session.area, session.id_sucursal])
+
+  const fetchAtendidos = useCallback(() => {
+    if (!session.area) return
+    getVisitasAtendidas(session.area, session.id_sucursal)
+      .then(data => setAtendidos(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [session.area, session.id_sucursal])
+
+  const fetchAlertas = useCallback(() => {
+    if (!session.id_sucursal) return
+    getAlertas(session.id_sucursal, session.id_estudio)
+      .then(data => setAlertas(Array.isArray(data) ? data : []))
+      .catch(() => setAlertas([]))
+  }, [session.id_sucursal, session.id_estudio])
 
   useEffect(() => {
     fetchPacientes()
     const iv = setInterval(fetchPacientes, 5000)
     return () => clearInterval(iv)
   }, [fetchPacientes])
+
+  useEffect(() => {
+    fetchAlertas()
+    const iv = setInterval(fetchAlertas, 10000)
+    return () => clearInterval(iv)
+  }, [fetchAlertas])
+
+  useEffect(() => {
+    fetchAtendidos()
+    const iv = setInterval(fetchAtendidos, 30000)
+    return () => clearInterval(iv)
+  }, [fetchAtendidos])
 
   const handleAvanzar = async (visitaId: string, veId: string, estatusId: number) => {
     const siguiente = getSiguienteEspecialista(estatusId)
@@ -507,6 +558,10 @@ function EspecialistaView({ session, onLogout, connected }: {
         nuevo_progreso: siguiente.progreso,
       })
       setTimeout(fetchPacientes, 800)
+      // Si se finalizó el estudio (VERIFICADO), refrescar la lista de atendidos
+      if (siguiente.id === 12) {
+        setTimeout(fetchAtendidos, 1200)
+      }
     } finally {
       setAdvancing(null)
     }
@@ -532,7 +587,9 @@ function EspecialistaView({ session, onLogout, connected }: {
             </div>
             <div>
               <p className="font-bold text-gray-900 text-sm leading-none">{session.nombre}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{areaInfo.label} · Especialista</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {areaInfo.label} · {session.nombre_sucursal ?? 'Especialista'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -549,8 +606,45 @@ function EspecialistaView({ session, onLogout, connected }: {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6">
-        {/* Resumen */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        {/* Tabs: Pacientes / Atendidos / Alertas */}
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
+          <button onClick={() => setActiveTab('pacientes')}
+            className={`flex-1 text-sm py-2 px-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${
+              activeTab === 'pacientes' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            Mis pacientes
+            {pacientes.length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === 'pacientes' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}`}>
+                {pacientes.length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => { setActiveTab('atendidos'); fetchAtendidos() }}
+            className={`flex-1 text-sm py-2 px-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${
+              activeTab === 'atendidos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            Atendidos
+            {atendidos.length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === 'atendidos' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
+                {atendidos.length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setActiveTab('alertas')}
+            className={`flex-1 text-sm py-2 px-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${
+              activeTab === 'alertas' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            Alertas
+            {alertas.length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === 'alertas' ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-600'}`}>
+                {alertas.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Resumen — solo en tab pacientes */}
+        {activeTab === 'pacientes' && <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="bg-white rounded-2xl p-4 border border-gray-100 text-center shadow-sm">
             <p className="text-3xl font-black text-gray-900">{pacientes.length}</p>
             <p className="text-xs text-gray-500 mt-1">En cola</p>
@@ -565,33 +659,223 @@ function EspecialistaView({ session, onLogout, connected }: {
             </p>
             <p className="text-xs text-gray-500 mt-1">Espera 1°</p>
           </div>
-        </div>
+        </div>}
 
         {/* Lista de pacientes */}
-        {loading ? (
-          <div className="text-center py-16">
-            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm text-gray-400">Cargando pacientes...</p>
+        {activeTab === 'pacientes' && (
+          <>
+            {loading ? (
+              <div className="text-center py-16">
+                <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-sm text-gray-400">Cargando pacientes...</p>
+              </div>
+            ) : pacientes.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+                <p className="text-4xl mb-3">✅</p>
+                <p className="font-semibold text-gray-700">Cola vacía</p>
+                <p className="text-sm text-gray-400 mt-1">No hay pacientes esperando en {areaInfo.label}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pacientes.map((v: any, idx: number) => (
+                  <EspecialistaPacienteCard
+                    key={v.visita_id}
+                    visita={v}
+                    posicion={idx + 1}
+                    advancing={advancing}
+                    onAvanzar={handleAvanzar}
+                    onChangePriority={handleChangePriority}
+                    especialistaNombre={session.nombre}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Tab atendidos hoy */}
+        {activeTab === 'atendidos' && (
+          <AtendidosPanel
+            atendidos={atendidos}
+            especialistaNombre={session.nombre}
+            onResultadoSubido={fetchAtendidos}
+          />
+        )}
+
+        {/* Tab alertas del área */}
+        {activeTab === 'alertas' && session.id_sucursal && (
+          <AlertasPanel
+            sucursalId={session.id_sucursal}
+            alertas={alertas}
+            onRefresh={fetchAlertas}
+            defaultEstudioId={session.id_estudio}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Panel Atendidos Hoy ───────────────────────────────────────────
+function AtendidosPanel({ atendidos, especialistaNombre, onResultadoSubido }: {
+  atendidos: any[]
+  especialistaNombre: string
+  onResultadoSubido: () => void
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-gray-900">Atendidos hoy</h2>
+        <span className="text-xs text-gray-400">{atendidos.length} paciente{atendidos.length !== 1 ? 's' : ''}</span>
+      </div>
+      {atendidos.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <p className="text-4xl mb-3">📋</p>
+          <p className="font-semibold text-gray-700">Sin atendidos hoy</p>
+          <p className="text-sm text-gray-400 mt-1">Los pacientes finalizados aparecerán aquí</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {atendidos.map((v: any) => (
+            <AtendidoCard
+              key={v.visita_id}
+              visita={v}
+              especialistaNombre={especialistaNombre}
+              onResultadoSubido={onResultadoSubido}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AtendidoCard({ visita, especialistaNombre, onResultadoSubido }: {
+  visita: any
+  especialistaNombre: string
+  onResultadoSubido: () => void
+}) {
+  const [showUpload, setShowUpload] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadTipo, setUploadTipo] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [showResultados, setShowResultados] = useState(false)
+
+  const horaFin = visita.timestamp_fin_visita
+    ? new Date(visita.timestamp_fin_visita).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+    : '—'
+  const tipoInfo = getTipoInfo(visita.tipo_paciente ?? 'sin_cita')
+  const resultados: any[] = visita.resultados ?? []
+
+  const handleSubir = async () => {
+    if (!uploadFile) return
+    setUploading(true); setUploadMsg(null)
+    const fd = new FormData()
+    fd.append('file', uploadFile)
+    fd.append('visita_id', visita.visita_id)
+    fd.append('tipo_estudio', uploadTipo)
+    fd.append('especialista', especialistaNombre)
+    fd.append('analizar_con_ia', 'false')
+    try {
+      await subirResultado(fd)
+      setUploadMsg({ ok: true, text: '✓ Resultado subido correctamente.' })
+      setUploadFile(null); setUploadTipo('')
+      onResultadoSubido()
+    } catch (err: any) {
+      setUploadMsg({ ok: false, text: `Error: ${err?.response?.data?.detail ?? err.message}` })
+    } finally { setUploading(false) }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Header de la tarjeta */}
+      <div className="flex items-center gap-3 p-4 border-b border-gray-50">
+        <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-700 font-black text-sm shrink-0">
+          ✓
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm truncate">{visita.paciente ?? 'Paciente'}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${tipoInfo.color}`}>{tipoInfo.label}</span>
+            <span className="text-xs text-gray-400">Finalizado {horaFin}</span>
           </div>
-        ) : pacientes.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
-            <p className="text-4xl mb-3">✅</p>
-            <p className="font-semibold text-gray-700">Cola vacía</p>
-            <p className="text-sm text-gray-400 mt-1">No hay pacientes esperando en {areaInfo.label}</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {pacientes.map((v: any, idx: number) => (
-              <EspecialistaPacienteCard
-                key={v.visita_id}
-                visita={v}
-                posicion={idx + 1}
-                advancing={advancing}
-                onAvanzar={handleAvanzar}
-                onChangePriority={handleChangePriority}
-                especialistaNombre={session.nombre}
-              />
-            ))}
+        </div>
+        {resultados.length > 0 && (
+          <button
+            onClick={() => setShowResultados(v => !v)}
+            className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 font-semibold hover:bg-emerald-100 transition-colors"
+          >
+            {resultados.length} resultado{resultados.length !== 1 ? 's' : ''} {showResultados ? '▲' : '▼'}
+          </button>
+        )}
+      </div>
+
+      {/* Resultados ya subidos */}
+      {showResultados && resultados.length > 0 && (
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 space-y-2">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Resultados subidos</p>
+          {resultados.map((r: any) => (
+            <div key={r.id} className="bg-white rounded-xl p-3 border border-gray-100 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 truncate">{r.nombre_archivo}</p>
+                  <div className="flex items-center gap-2 mt-0.5 text-gray-400">
+                    {r.tipo_estudio && <span className="font-bold text-blue-500 uppercase text-[10px]">{r.tipo_estudio}</span>}
+                    <span>{new Date(r.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+                <a href={r.url_archivo} target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 text-blue-600 font-bold hover:underline">Abrir ↗</a>
+              </div>
+              {r.interpretacion_ia && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-blue-600 font-semibold text-[10px] uppercase tracking-wide">Ver interpretación IA</summary>
+                  <p className="mt-1 text-gray-600 leading-relaxed bg-blue-50 rounded p-2 whitespace-pre-wrap text-[10px]">{r.interpretacion_ia}</p>
+                </details>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Acciones */}
+      <div className="p-4">
+        <button
+          onClick={() => { setShowUpload(v => !v); setUploadMsg(null) }}
+          className="w-full text-xs font-semibold py-2.5 rounded-xl border-2 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors flex items-center justify-center gap-2"
+        >
+          📤 {showUpload ? 'Cancelar' : 'Subir resultado'}
+        </button>
+
+        {showUpload && (
+          <div className="mt-3 space-y-3">
+            <input
+              type="text" placeholder="Tipo de estudio (ej: Laboratorio)"
+              value={uploadTipo} onChange={e => setUploadTipo(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <label className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed cursor-pointer transition-colors text-xs font-medium ${
+              uploadFile ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-400 hover:border-blue-300'
+            }`}>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                onChange={e => { setUploadFile(e.target.files?.[0] ?? null); setUploadMsg(null) }} />
+              {uploadFile ? `✓ ${uploadFile.name}` : '📎 Seleccionar PDF o imagen...'}
+            </label>
+            <button
+              disabled={!uploadFile || uploading}
+              onClick={handleSubir}
+              className="w-full py-2.5 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+            >
+              {uploading
+                ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Subiendo y analizando...</>
+                : 'Subir y analizar con IA'}
+            </button>
+            {uploadMsg && (
+              <p className={`text-xs font-semibold text-center ${uploadMsg.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                {uploadMsg.text}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -600,13 +884,13 @@ function EspecialistaView({ session, onLogout, connected }: {
 }
 
 // ── Panel Alertas ─────────────────────────────────────────────────
-function AlertasPanel({ sucursalId, alertas, onRefresh }: {
-  sucursalId: number; alertas: any[]; onRefresh: () => void
+function AlertasPanel({ sucursalId, alertas, onRefresh, defaultEstudioId }: {
+  sucursalId: number; alertas: any[]; onRefresh: () => void; defaultEstudioId?: number
 }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({
     tipo_alerta: 'retraso_general', titulo: '', descripcion: '',
-    severidad: 'media', impacto_tiempo_min: 15, id_estudio: null as number | null,
+    severidad: 'media', impacto_tiempo_min: 15, id_estudio: defaultEstudioId ?? null as number | null,
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -714,17 +998,197 @@ function AlertasPanel({ sucursalId, alertas, onRefresh }: {
   )
 }
 
+// ── Panel de Especialistas ────────────────────────────────────────
+function EspecialistasPanel() {
+  const [lista,      setLista]      = useState<any[]>([])
+  const [sucursales, setSucursales] = useState<any[]>([])
+  const [areas,      setAreas]      = useState<any[]>([])
+  const [showForm,   setShowForm]   = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null)
+  const [form, setForm] = useState({
+    nombre:      '',
+    id_empleado: '',
+    pin:         '',
+    id_sucursal: 0,
+    id_estudio:  0,
+    rol:         'especialista' as 'especialista' | 'admin',
+  })
+
+  const load = useCallback(() => {
+    getEspecialistasSucursal().then(d => setLista(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    load()
+    getSucursalesEspecialista().then(d => {
+      const arr = Array.isArray(d) ? d : []
+      setSucursales(arr)
+      if (arr.length > 0 && form.id_sucursal === 0) setForm(f => ({ ...f, id_sucursal: arr[0].id }))
+    }).catch(() => {})
+    getAreasEspecialista().then(d => {
+      const arr = Array.isArray(d) ? d : []
+      setAreas(arr)
+      if (arr.length > 0 && form.id_estudio === 0) setForm(f => ({ ...f, id_estudio: arr[0].id }))
+    }).catch(() => {})
+  }, [load])
+
+  const handleRegistrar = async () => {
+    if (!form.nombre.trim() || !form.id_empleado.trim() || form.pin.length !== 4) {
+      setMsg({ ok: false, text: 'Nombre, ID de empleado y PIN de 4 dígitos son obligatorios.' })
+      return
+    }
+    setSubmitting(true); setMsg(null)
+    try {
+      await registrarEspecialista(form)
+      setMsg({ ok: true, text: `Especialista "${form.nombre}" registrado exitosamente.` })
+      setForm({ nombre: '', id_empleado: '', pin: '', id_sucursal: sucursales[0]?.id ?? 0, id_estudio: areas[0]?.id ?? 0, rol: 'especialista' })
+      setShowForm(false)
+      load()
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail ?? e?.message ?? 'Error desconocido'
+      setMsg({ ok: false, text: detail })
+    } finally { setSubmitting(false) }
+  }
+
+  const ROL_LABEL: Record<string, string> = { especialista: 'Especialista', admin: 'Admin' }
+  const ROL_COLOR: Record<string, string> = { especialista: 'bg-blue-100 text-blue-700', admin: 'bg-purple-100 text-purple-700' }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-gray-900">Especialistas registrados</h2>
+        <button onClick={() => { setShowForm(!showForm); setMsg(null) }}
+          className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-medium">
+          {showForm ? 'Cancelar' : '+ Agregar especialista'}
+        </button>
+      </div>
+
+      {msg && (
+        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${msg.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
+          <p className="text-sm font-semibold text-gray-900 mb-4">Nuevo especialista</p>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 mb-1 block">Nombre completo</label>
+              <input type="text" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })}
+                placeholder="Dra. Ana Torres"
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Número de empleado</label>
+              <input type="text" value={form.id_empleado} onChange={e => setForm({ ...form, id_empleado: e.target.value.toUpperCase() })}
+                placeholder="EMP-OBR01"
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">PIN (4 dígitos)</label>
+              <input type="password" inputMode="numeric" maxLength={4}
+                value={form.pin} onChange={e => setForm({ ...form, pin: e.target.value.replace(/\D/g, '') })}
+                placeholder="● ● ● ●"
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-200" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Sucursal</label>
+              <select value={form.id_sucursal} onChange={e => setForm({ ...form, id_sucursal: Number(e.target.value) })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+                {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre} — {s.ciudad}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Área / Estudio</label>
+              <select value={form.id_estudio} onChange={e => setForm({ ...form, id_estudio: Number(e.target.value) })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+                {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Rol</label>
+              <select value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value as 'especialista' | 'admin' })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+                <option value="especialista">Especialista</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={handleRegistrar} disabled={submitting}
+            className="w-full text-sm bg-blue-600 text-white py-2.5 rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold transition-colors">
+            {submitting ? 'Registrando...' : 'Registrar especialista'}
+          </button>
+        </div>
+      )}
+
+      {lista.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <p className="text-3xl mb-2">👤</p>
+          <p className="text-sm">Sin especialistas registrados</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {lista.map((e: any) => (
+            <div key={e.id} className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-4">
+              <div className="w-9 h-9 bg-slate-100 rounded-xl flex items-center justify-center text-lg shrink-0">🧑‍⚕️</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{e.nombre}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  <span className="font-mono">{e.id_empleado}</span>
+                  {' · '}{e.nombre_estudio ?? '—'}
+                  {' · '}{e.nombre_sucursal ?? '—'}
+                </p>
+              </div>
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full shrink-0 ${ROL_COLOR[e.rol] ?? 'bg-gray-100 text-gray-600'}`}>
+                {ROL_LABEL[e.rol] ?? e.rol}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ── Pantalla de Login ─────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
   const [modo, setModo] = useState<'elegir' | 'especialista' | 'coordinador'>('elegir')
-  const [nombre, setNombre] = useState('')
-  const [area, setArea] = useState('')
+  const [nombre, setNombre] = useState('')          // solo coordinador
+  const [idEmpleado, setIdEmpleado] = useState('')  // especialista
+  const [pin, setPin] = useState('')                // especialista
+  const [area, setArea] = useState('')              // solo coordinador
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const handleLogin = () => {
+  const handleLoginEspecialista = async () => {
+    if (!idEmpleado.trim()) { setError('Ingresa tu número de empleado'); return }
+    if (pin.length !== 4)   { setError('El PIN debe tener 4 dígitos');   return }
+    setLoading(true); setError('')
+    try {
+      const data = await loginEspecialista(idEmpleado.trim(), pin)
+      // data: { especialista_id, nombre, id_empleado, rol, id_sucursal, nombre_sucursal, id_estudio, nombre_estudio }
+      onLogin({
+        rol:             'especialista',
+        nombre:          data.nombre,
+        area:            data.nombre_estudio?.toUpperCase() ?? '',
+        especialista_id: data.especialista_id,
+        id_empleado:     data.id_empleado,
+        id_sucursal:     data.id_sucursal,
+        nombre_sucursal: data.nombre_sucursal,
+        id_estudio:      data.id_estudio,
+      })
+    } catch (e: any) {
+      const status = e?.response?.status
+      setError(status === 401 ? 'PIN incorrecto.' : status === 404 ? 'Número de empleado no encontrado.' : 'Error de conexión.')
+    } finally { setLoading(false) }
+  }
+
+  const handleLoginCoordinador = () => {
     if (!nombre.trim()) { setError('Ingresa tu nombre'); return }
-    if (modo === 'especialista' && !area) { setError('Selecciona tu área'); return }
-    onLogin({ rol: modo === 'especialista' ? 'especialista' : 'coordinador', nombre: nombre.trim(), area: area || undefined })
+    onLogin({ rol: 'coordinador', nombre: nombre.trim(), area: area || undefined })
   }
 
   return (
@@ -779,6 +1243,49 @@ function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
                 {modo === 'especialista' ? 'Ingresa tus datos para ver tu área' : 'Acceso al panel general de operaciones'}
               </p>
 
+              {/* ── Especialista: id_empleado + PIN ── */}
+              {modo === 'especialista' ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Número de empleado</label>
+                  <input
+                    type="text"
+                    value={idEmpleado}
+                    onChange={e => { setIdEmpleado(e.target.value); setError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleLoginEspecialista()}
+                    placeholder="Ej: EMP001"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50 outline-none text-sm transition-all font-mono tracking-widest"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">PIN (4 dígitos)</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pin}
+                    onChange={e => { setPin(e.target.value.replace(/\D/g, '')); setError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleLoginEspecialista()}
+                    placeholder="● ● ● ●"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50 outline-none text-2xl font-mono tracking-[1rem] text-center transition-all"
+                  />
+                </div>
+
+                {error && <p className="text-red-500 text-sm text-center font-medium">{error}</p>}
+
+                <button
+                  onClick={handleLoginEspecialista}
+                  disabled={loading || idEmpleado.length === 0 || pin.length !== 4}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
+                  {loading
+                    ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verificando...</>
+                    : 'Entrar →'
+                  }
+                </button>
+              </div>
+              ) : (
+              /* ── Coordinador: solo nombre ── */
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold text-gray-700 block mb-1.5">Tu nombre</label>
@@ -786,16 +1293,14 @@ function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
                     type="text"
                     value={nombre}
                     onChange={e => { setNombre(e.target.value); setError('') }}
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                    placeholder={modo === 'especialista' ? 'Dr. García' : 'Coordinador'}
+                    onKeyDown={e => e.key === 'Enter' && handleLoginCoordinador()}
+                    placeholder="Coordinador"
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50 outline-none text-sm transition-all"
                     autoFocus
                   />
                 </div>
-
-                {modo === 'especialista' && (
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700 block mb-2">Tu área de especialidad</label>
+                <div>
+                    <label className="text-xs font-semibold text-gray-700 block mb-2">Filtrar por área (opcional)</label>
                     <div className="grid grid-cols-2 gap-2">
                       {ESTUDIOS_AREA.map(est => (
                         <button key={est.key} onClick={() => { setArea(est.key); setError('') }}
@@ -810,17 +1315,15 @@ function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
                       ))}
                     </div>
                   </div>
-                )}
 
                 {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
 
-                <button onClick={handleLogin}
-                  className={`w-full py-3.5 rounded-xl font-bold text-white transition-all ${
-                    modo === 'especialista' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}>
+                <button onClick={handleLoginCoordinador}
+                  className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-all">
                   Ingresar al panel
                 </button>
               </div>
+              )}
             </>
           )}
         </div>
@@ -830,14 +1333,15 @@ function LoginScreen({ onLogin }: { onLogin: (s: Session) => void }) {
 }
 
 // ── App principal ─────────────────────────────────────────────────
-type TabId = 'colas' | 'pacientes' | 'alertas'
+type TabId = 'colas' | 'pacientes' | 'alertas' | 'especialistas'
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(() => getSession())
+  const [session,    setSession]    = useState<Session | null>(() => getSession())
   const [clinicas,   setClinicas]   = useState<any[]>([])
   const [visitas,    setVisitas]    = useState<any[]>([])
   const [alertas,    setAlertas]    = useState<any[]>([])
-  const [sucursalId, setSucursalId] = useState<number>(1)
+  const [sucursales, setSucursales] = useState<{ id: number; nombre: string; ciudad?: string }[]>([])
+  const [sucursalId, setSucursalId] = useState<number>(0)
   const [advancing,  setAdvancing]  = useState<string | null>(null)
   const [connected,  setConnected]  = useState(false)
   const [activeTab,  setActiveTab]  = useState<TabId>('colas')
@@ -852,6 +1356,18 @@ export default function App() {
     return () => clearInterval(iv)
   }, [])
 
+  // Sucursales desde el backend (solo coordinador)
+  useEffect(() => {
+    if (session?.rol !== 'coordinador') return
+    getSucursalesEspecialista()
+      .then((data: any[]) => {
+        const lista = Array.isArray(data) ? data : []
+        setSucursales(lista)
+        if (lista.length > 0 && sucursalId === 0) setSucursalId(lista[0].id)
+      })
+      .catch(() => {})
+  }, [session?.rol])
+
   // Clínicas y visitas solo para coordinador
   useEffect(() => {
     if (session?.rol !== 'coordinador') return
@@ -859,14 +1375,19 @@ export default function App() {
     f(); const iv = setInterval(f, 8000); return () => clearInterval(iv)
   }, [session?.rol])
 
-  useEffect(() => {
+  const fetchVisitas = useCallback(() => {
     if (session?.rol !== 'coordinador') return
-    const f = () => getVisitasActivas().then(d => setVisitas(Array.isArray(d) ? d : [])).catch(() => {})
-    f(); const iv = setInterval(f, 5000); return () => clearInterval(iv)
+    getVisitasActivas().then(d => setVisitas(Array.isArray(d) ? d : [])).catch(() => {})
   }, [session?.rol])
 
+  useEffect(() => {
+    fetchVisitas()
+    const iv = setInterval(fetchVisitas, 5000)
+    return () => clearInterval(iv)
+  }, [fetchVisitas])
+
   const fetchAlertas = useCallback(() => {
-    if (session?.rol !== 'coordinador') return
+    if (session?.rol !== 'coordinador' || !sucursalId) return
     getAlertas(sucursalId).then(d => setAlertas(Array.isArray(d) ? d : [])).catch(() => setAlertas([]))
   }, [sucursalId, session?.rol])
 
@@ -914,17 +1435,19 @@ export default function App() {
     setAdvancing(veId)
     try {
       await avanzarEstudio(visitaId, { id_visita_estudio: veId, nuevo_estatus: siguiente.id, nuevo_paso: siguiente.paso, nuevo_progreso: siguiente.progreso })
+      setTimeout(fetchVisitas, 800)
     } finally { setAdvancing(null) }
   }
 
   const handleChangePriority = async (visitaId: string, tipo: string) => {
-    try { await cambiarTipoPaciente(visitaId, tipo) } catch {}
+    try { await cambiarTipoPaciente(visitaId, tipo); setTimeout(fetchVisitas, 800) } catch {}
   }
 
   const TABS: { id: TabId; label: string; count?: number }[] = [
-    { id: 'colas',     label: 'Colas por área' },
-    { id: 'pacientes', label: 'Pacientes', count: visitas.length || undefined },
-    { id: 'alertas',   label: 'Alertas',   count: alertas.length || undefined },
+    { id: 'colas',        label: 'Colas por área' },
+    { id: 'pacientes',    label: 'Pacientes',    count: visitas.length || undefined },
+    { id: 'alertas',      label: 'Alertas',      count: alertas.length || undefined },
+    { id: 'especialistas', label: 'Especialistas' },
   ]
 
   return (
@@ -946,7 +1469,9 @@ export default function App() {
           </a>
           <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"
             value={sucursalId} onChange={e => setSucursalId(Number(e.target.value))}>
-            {SUCURSALES.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            {sucursales.map(s => (
+              <option key={s.id} value={s.id}>{s.nombre}{s.ciudad ? ` — ${s.ciudad}` : ''}</option>
+            ))}
           </select>
           <button onClick={handleLogout}
             className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">
@@ -983,7 +1508,7 @@ export default function App() {
 
         {activeTab === 'colas' && (
           <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-100">
-            <h2 className="font-semibold text-gray-900 mb-4">Colas por área — {SUCURSALES.find(s => s.id === sucursalId)?.nombre}</h2>
+            <h2 className="font-semibold text-gray-900 mb-4">Colas por área — {sucursales.find(s => s.id === sucursalId)?.nombre ?? `Sucursal ${sucursalId}`}</h2>
             {datosSucursal.length > 0
               ? <Bar data={chartData} options={chartOpts} />
               : <p className="text-sm text-gray-400 text-center py-10">Sin datos para esta sucursal</p>}
@@ -1016,6 +1541,12 @@ export default function App() {
 
         {activeTab === 'alertas' && (
           <AlertasPanel sucursalId={sucursalId} alertas={alertas} onRefresh={fetchAlertas} />
+        )}
+
+        {activeTab === 'especialistas' && (
+          <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-100">
+            <EspecialistasPanel />
+          </div>
         )}
       </div>
     </div>

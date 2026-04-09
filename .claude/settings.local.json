@@ -63,7 +63,18 @@
       "Bash(cmd:*)",
       "Bash(powershell:*)",
       "Bash(ipconfig)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(.\\\\venv\\\\Scripts\\\\python.exe -c \"from services.recomendacion import seleccionar_mejor_sucursal, DatosSucursal; print\\('OK'\\)\")",
+      "Bash(venv/Scripts/python.exe -c \"from services.recomendacion import seleccionar_mejor_sucursal, DatosSucursal; print\\('OK'\\)\")",
+      "Bash(venv/Scripts/python.exe -c ':*)",
+      "Bash(cat)",
+      "Bash(python /tmp/test_rec.py)",
+      "Bash(python -c ':*)",
+      "Bash(npx tsc:*)",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import socket; print\\(socket.gethostbyname\\('api.anthropic.com'\\)\\)\")",
+      "Bash(\"venv/Scripts/python.exe\" -c \"import socket; print\\(socket.gethostbyname\\('api.anthropic.com'\\)\\)\")",
+      "Bash(venv\\\\Scripts\\\\python ../db/geocodificar_sucursales.py)",
+      "Bash(\"venv/Scripts/python.exe\" \"../db/geocodificar_sucursales.py\")"
     ]
   }
 }

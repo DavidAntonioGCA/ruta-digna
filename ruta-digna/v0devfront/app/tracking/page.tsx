@@ -64,6 +64,22 @@ const TIPO_DOT: Record<string, string> = {
   discapacidad: "bg-purple-500", con_cita: "bg-blue-500", sin_cita: "bg-slate-300",
 }
 
+// Mismo mapa de ubicaciones que el de antes-de-ir
+const GUIA_EJEMPLO: Record<string, { nombre_area: string; ubicacion: string; instrucciones: string }> = {
+  LABORATORIO:          { nombre_area: "Laboratorio Clínico",               ubicacion: "Planta baja, pasillo derecho al fondo",         instrucciones: "Entra por la puerta principal, gira a la derecha y sigue el pasillo hasta ver el letrero azul." },
+  ULTRASONIDO:          { nombre_area: "Gabinete de Ultrasonido",            ubicacion: "Segundo piso, ala norte",                      instrucciones: "Sube las escaleras o el elevador, gira a la izquierda, busca las cabinas del 1 al 4." },
+  "RAYOS X":            { nombre_area: "Radiología e Imagen",               ubicacion: "Planta baja, frente a recepción",               instrucciones: "Cruza hacia el centro del edificio; busca el letrero rojo de advertencia." },
+  DENSITOMETRÍA:        { nombre_area: "Densitometría Ósea",                ubicacion: "Primer piso, ala sur",                         instrucciones: "Gira a la izquierda y sigue el pasillo sur hasta el consultorio 12." },
+  MASTOGRAFÍA:          { nombre_area: "Mastografía y Prevención Femenina", ubicacion: "Segundo piso, zona privada",                   instrucciones: "Sube por el elevador lateral. Toca el timbre si la puerta está cerrada." },
+  PAPANICOLAOU:         { nombre_area: "Ginecología Preventiva",             ubicacion: "Segundo piso, consultorio 8",                  instrucciones: "Sube al segundo piso y busca el consultorio 8; espera afuera si hay cortina azul." },
+  ELECTROCARDIOGRAMA:   { nombre_area: "Cardiología Básica",                ubicacion: "Planta baja, fondo del pasillo central",       instrucciones: "Toma el pasillo central; el cuarto del electro está al final con la puerta del corazón." },
+  TOMOGRAFÍA:           { nombre_area: "Tomografía Computarizada",           ubicacion: "Sótano, acceso por rampa lateral",             instrucciones: "Baja por la rampa lateral izquierda; puertas dobles metálicas con letrero naranja." },
+  "RESONANCIA MAGNÉTICA":{ nombre_area: "Resonancia Magnética",             ubicacion: "Sótano, junto a Tomografía",                  instrucciones: "Baja por la rampa lateral; tras la puerta blindada. Deja objetos metálicos antes de entrar." },
+  NUTRICIÓN:            { nombre_area: "Consulta de Nutrición",             ubicacion: "Primer piso, consultorio 5",                   instrucciones: "Sigue el pasillo principal; el consultorio 5 tiene una balanza afuera como referencia." },
+  "ÓPTICA":              { nombre_area: "Centro Óptico",                      ubicacion: "Planta baja, local 2 junto a farmacia",        instrucciones: "Desde la entrada ve a la derecha; busca el letrero verde con anteojos." },
+  "EXAMEN DE LA VISTA": { nombre_area: "Optometría",                         ubicacion: "Planta baja, junto a Óptica",                  instrucciones: "Contiguo al centro óptico; díle a la recepcionista que vienes para el examen de la vista." },
+}
+
 function EstudioActual({ estudio, visitaId, cola }: { estudio: EstudioVisita; visitaId: string; cola: ColaPaciente | null }) {
   const [message, setMessage] = useState("")
   const [chatMessages, setChatMessages] = useState<{ text: string; isUser: boolean }[]>([])
@@ -95,13 +111,27 @@ function EstudioActual({ estudio, visitaId, cola }: { estudio: EstudioVisita; vi
                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Servicio Actual</p>
                <h3 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">{estudio.nombre}</h3>
             </div>
-            <div className="bg-blue-50 px-4 py-2 rounded-2xl">
-                <span className="text-xl font-black text-blue-600 tabular-nums">{estudio.progreso_pct}%</span>
-            </div>
           </div>
-          <div className="w-full h-2.5 bg-slate-50 rounded-full overflow-hidden mb-8">
-            <div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${estudio.progreso_pct}%` }} />
-          </div>
+
+          {/* Tarjeta de ubicación */}
+          {(() => {
+            const guia = GUIA_EJEMPLO[estudio.nombre]
+            if (!guia) return null
+            return (
+              <div className="mb-6 flex items-start gap-3 p-4 bg-blue-50 rounded-[22px] border border-blue-100 text-left">
+                <div className="w-8 h-8 rounded-[12px] bg-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+                  <MapPin className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-0.5">¿Dónde ir?</p>
+                  <p className="text-sm font-black text-slate-800 leading-tight">{guia.nombre_area}</p>
+                  <p className="text-[11px] font-bold text-slate-500 mt-0.5">{guia.ubicacion}</p>
+                  <p className="text-xs text-slate-600 font-medium mt-1.5 leading-relaxed">{guia.instrucciones}</p>
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="grid grid-cols-2 gap-4 mb-8">
              <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 text-left">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Espera est.</p>
@@ -196,10 +226,15 @@ function ResultadosSection({ visitaId }: { visitaId: string }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getResultadosVisita(visitaId)
-      .then(setResultados)
-      .catch(() => setResultados([]))   // 404 o error → lista vacía, sin ruido en consola
-      .finally(() => setLoading(false))
+    const fetch = () =>
+      getResultadosVisita(visitaId)
+        .then(setResultados)
+        .catch(() => setResultados([]))
+        .finally(() => setLoading(false))
+
+    fetch()
+    const iv = setInterval(fetch, 15000)
+    return () => clearInterval(iv)
   }, [visitaId])
 
   if (loading) return (

@@ -122,6 +122,21 @@ export const explicarResultados = (data: {
     body: JSON.stringify(data),
   })
 
+// ── Resultados ───────────────────────────────────────────────────
+
+export interface ResultadoEstudio {
+  id:               string
+  nombre_archivo:   string
+  url_archivo:      string
+  tipo_estudio:     string
+  interpretacion_ia?: string
+  subido_por?:      string
+  created_at:       string
+}
+
+export const getResultadosVisita = (visitaId: string) =>
+  apiFetch<ResultadoEstudio[]>(`/resultados/visita/${visitaId}`)
+
 // ── Estudios ──────────────────────────────────────────────────────
 
 export const getRestricciones = (idEstudio: number, edad?: number, meses?: number) =>

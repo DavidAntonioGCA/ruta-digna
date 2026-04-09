@@ -3,13 +3,14 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ClipboardList, MapPin, Activity, Settings2 } from "lucide-react"
+import { ClipboardList, MapPin, Activity, Settings2, FileText } from "lucide-react"
 import SettingsDrawer from "./SettingsDrawer"
 
 const navItems = [
   { href: "/antes-de-ir", icon: ClipboardList, label: "Preparación" },
   { href: "/recomendar",  icon: MapPin,         label: "Mi clínica"  },
   { href: "/tracking",    icon: Activity,       label: "Mi visita"   },
+  { href: "/resultados",  icon: FileText,       label: "Resultados"  },
 ]
 
 export default function BottomNav() {

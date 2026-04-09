@@ -22,6 +22,7 @@ export default function Recomendar() {
   const router = useRouter()
   const [mensaje, setMensaje] = useState("")
   const [loading, setLoading] = useState(false)
+  const [loadingStep, setLoadingStep] = useState<"gps" | "ia" | null>(null)
   const [creando, setCreando] = useState(false)
   const [result, setResult] = useState<RecomendacionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,9 +50,30 @@ export default function Recomendar() {
       .catch(() => { /* falla silenciosa — el panel mostrará solo las sugerencias de IA */ })
   }, [])
 
+  /** Obtiene la ubicación GPS con alta precisión. Nunca lanza — devuelve undefined si falla. */
+  const obtenerUbicacion = async (): Promise<{ lat: number; lon: number } | undefined> => {
+    if (!navigator.geolocation) return undefined
+    setLoadingStep("gps")
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,   // GPS real, no wifi/celda
+          timeout: 12000,             // 12 s para que el chip GPS tenga tiempo
+          maximumAge: 0,              // nunca usar posición cacheada
+        })
+      )
+      return { lat: pos.coords.latitude, lon: pos.coords.longitude }
+    } catch {
+      return undefined
+    } finally {
+      setLoadingStep("ia")
+    }
+  }
+
   const handleBuscar = async () => {
     if (!mensaje.trim()) return
     setLoading(true)
+    setLoadingStep("gps")
     setError(null)
     setResult(null)
     setSucursalSeleccionada(null)
@@ -59,17 +81,13 @@ export default function Recomendar() {
     setAvisoAceptado(false)
 
     try {
-      let lat: number | undefined
-      let lon: number | undefined
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-        )
-        lat = pos.coords.latitude
-        lon = pos.coords.longitude
-      } catch { /* Ubicación opcional */ }
+      const coords = await obtenerUbicacion()
+      const lat = coords?.lat
+      const lon = coords?.lon
 
       const data = await recomendar(mensaje, lat, lon)
+      // Anotar si se usó ubicación real para poder mostrar aviso al usuario
+      ;(data as any)._sin_ubicacion = !coords
       setResult(data)
       setOrdenPersonalizado(data.orden_sugerido ?? [])
 
@@ -85,6 +103,7 @@ export default function Recomendar() {
       setError("No pudimos conectar con el servidor. Intenta de nuevo.")
     } finally {
       setLoading(false)
+      setLoadingStep(null)
     }
   }
 
@@ -94,15 +113,9 @@ export default function Recomendar() {
     setBuscandoConEstudios(true)
     setError(null)
     try {
-      let lat: number | undefined
-      let lon: number | undefined
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-        )
-        lat = pos.coords.latitude
-        lon = pos.coords.longitude
-      } catch { /* Ubicación opcional */ }
+      const coords = await obtenerUbicacion()
+      const lat = coords?.lat
+      const lon = coords?.lon
 
       // Volver a llamar al backend pero con mensaje que incluye los estudios confirmados
       // Construimos un mensaje enriquecido con los nombres de los estudios seleccionados
@@ -178,6 +191,58 @@ export default function Recomendar() {
     return { texto: `~${min} min`, clase: "text-slate-900 font-black text-3xl" }
   }
 
+  /**
+   * Genera una explicación dinámica del razonamiento de la IA sobre la sucursal recomendada.
+   * Recibe la sucursal recomendada y todas las alternativas como contexto comparativo.
+   */
+  const generarExplicacionRecomendacion = (
+    recomendada: NonNullable<RecomendacionResponse["sucursal_recomendada"]>,
+    alternativas: RecomendacionResponse["alternativas"]
+  ): string => {
+    const todas = [recomendada, ...alternativas]
+
+    // Caso: única sucursal disponible
+    if (todas.length === 1) {
+      return "Es la única sucursal disponible que atiende los estudios que necesitas."
+    }
+
+    const tiempos = todas.map(s => s.tiempo_total_min).filter((t): t is number => t != null && t > 0)
+    const distancias = todas.map(s => s.distancia_km).filter((d): d is number => d != null && d > 0)
+
+    const hayTiempos = tiempos.length === todas.length
+    const hayDistancias = distancias.length === todas.length
+
+    // Caso: sin datos de tiempo en ninguna sucursal
+    if (!hayTiempos) {
+      return "Es la sucursal con mayor disponibilidad de estudios cerca de ti."
+    }
+
+    const menorTiempo = Math.min(...tiempos)
+    const esMenorTiempo = (recomendada.tiempo_total_min ?? Infinity) <= menorTiempo
+
+    if (!hayDistancias) {
+      // Solo comparamos por tiempo
+      if (esMenorTiempo) {
+        return "Es la opción con el menor tiempo de espera disponible entre todas las sucursales."
+      }
+      return "Ofrece la mejor combinación de disponibilidad y tiempo de espera para tus estudios."
+    }
+
+    const menorDistancia = Math.min(...distancias)
+    const esMasCercana = (recomendada.distancia_km ?? Infinity) <= menorDistancia
+
+    if (esMenorTiempo && esMasCercana) {
+      return "Es la más cercana y tiene el menor tiempo de espera disponible."
+    }
+    if (!esMasCercana && esMenorTiempo) {
+      return "Aunque hay sucursales más cercanas, esta tiene menor tiempo de espera. Con trayecto incluido, llegarás y saldrás antes que en cualquier otra opción."
+    }
+    if (esMasCercana && !esMenorTiempo) {
+      return "Es la sucursal más cercana a tu ubicación y tiene buena disponibilidad."
+    }
+    return "Ofrece la mejor combinación de distancia y tiempo de espera para tus estudios."
+  }
+
   // ¿Mostramos el panel de confirmación?
   const mostrarConfirmacion = result && !result.sin_estudios && result.confianza === "baja" && !result.sucursal_recomendada === false
     ? false // ya tiene sucursal (confianza baja pero llegó a recomendar — edge case)
@@ -185,6 +250,9 @@ export default function Recomendar() {
 
   // Si hay sucursal Y confianza baja, mostramos ambas (advertencia + resultado)
   const confianzaBajaConSucursal = result && !result.sin_estudios && result.confianza === "baja" && result.sucursal_recomendada
+
+  // ¿La sucursal seleccionada ES la recomendada por la IA?
+  const esLaRecomendada = sucursalSeleccionada?.id_sucursal === result?.sucursal_recomendada?.id_sucursal
 
   return (
     <div className="min-h-screen bg-[#F9FBFF] pb-28 text-slate-900 selection:bg-blue-100 selection:text-blue-900">
@@ -238,7 +306,9 @@ export default function Recomendar() {
             {loading ? (
               <div className="flex items-center gap-3">
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span className="tracking-wide">Analizando opciones...</span>
+                <span className="tracking-wide">
+                  {loadingStep === "gps" ? "Obteniendo tu ubicación..." : "Buscando sucursales..."}
+                </span>
               </div>
             ) : (
               <>
@@ -446,13 +516,23 @@ export default function Recomendar() {
               </div>
             )}
 
+            {/* Aviso: ubicación no disponible */}
+            {(result as any)?._sin_ubicacion && (
+              <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3">
+                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                <p className="text-xs text-slate-600 font-medium">
+                  No se obtuvo tu ubicación GPS. Las sucursales se ordenan por menor tiempo de espera, sin considerar distancia. Activa la ubicación y vuelve a buscar para ver las más cercanas primero.
+                </p>
+              </div>
+            )}
+
             {/* ─── SELECTOR DE SUCURSAL ─── */}
             <div className="bg-white rounded-[32px] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] mb-4 select-none">
                 Selecciona tu sucursal
               </h3>
               <div className="space-y-3">
-                {todasSucursales.map((suc, idx) => {
+                {todasSucursales.slice(0, showOthers ? undefined : 3).map((suc, idx) => {
                   const isSelected = sucursalSeleccionada?.id_sucursal === suc.id_sucursal
                   const isRecomendada = idx === 0
                   return (
@@ -483,7 +563,7 @@ export default function Recomendar() {
                         </div>
                         <div className="flex items-center gap-1.5 mt-1">
                           <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="text-xs text-slate-500 font-medium truncate">{suc.direccion}</span>
+                          <span className="text-xs text-slate-500 font-medium truncate">{suc.ciudad}</span>
                         </div>
                         <div className="flex items-center gap-4 mt-2">
                           <span className="text-xs font-bold">
@@ -493,7 +573,12 @@ export default function Recomendar() {
                               return <span className={t.clase.replace('text-3xl', 'text-xs').replace('font-black', 'font-bold')}>{t.texto}</span>
                             })()}
                           </span>
-                          <span className="text-xs font-bold text-slate-400 uppercase tracking-tight">{suc.ciudad}</span>
+                          {suc.distancia_km != null && suc.distancia_km > 0 && (
+                            <span className="text-xs font-bold text-slate-500">
+                              <MapPin className="inline w-3 h-3 mr-0.5 text-slate-400" />
+                              {suc.distancia_km} km
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -506,21 +591,42 @@ export default function Recomendar() {
                   )
                 })}
               </div>
+
+              {/* Botón ver más / menos */}
+              {todasSucursales.length > 3 && (
+                <button
+                  onClick={() => setShowOthers(v => !v)}
+                  className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-bold transition-all"
+                >
+                  {showOthers ? (
+                    <><ChevronUp className="w-4 h-4" /> Ver menos sucursales</>
+                  ) : (
+                    <><ChevronDown className="w-4 h-4" /> Ver {todasSucursales.length - 3} sucursales más cerca de ti</>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* ─── TARJETA DETALLE SUCURSAL SELECCIONADA ─── */}
             {sucursalSeleccionada && (
               <div className="relative group">
-                <div className="absolute -top-4 left-10 z-10 bg-emerald-500 text-white text-[11px] font-black px-5 py-2 rounded-full shadow-[0_10px_20px_rgba(16,185,129,0.3)] flex items-center gap-2 border-2 border-white select-none">
-                  <Check className="w-3.5 h-3.5 stroke-[4px]" /> TU MEJOR RUTA
-                </div>
-                
+                {/* Badge condicional: verde si es la recomendada, azul si es alternativa */}
+                {esLaRecomendada ? (
+                  <div className="absolute -top-4 left-10 z-10 bg-emerald-500 text-white text-[11px] font-black px-5 py-2 rounded-full shadow-[0_10px_20px_rgba(16,185,129,0.3)] flex items-center gap-2 border-2 border-white select-none">
+                    <Check className="w-3.5 h-3.5 stroke-[4px]" /> TU MEJOR RUTA
+                  </div>
+                ) : (
+                  <div className="absolute -top-4 left-10 z-10 bg-blue-500 text-white text-[11px] font-black px-5 py-2 rounded-full shadow-[0_10px_20px_rgba(59,130,246,0.3)] flex items-center gap-2 border-2 border-white select-none">
+                    <Check className="w-3.5 h-3.5 stroke-[4px]" /> SUCURSAL SELECCIONADA
+                  </div>
+                )}
+
                 <div className="bg-white rounded-[40px] p-10 shadow-[0_30px_60px_rgba(0,0,0,0.06)] border-2 border-blue-50 relative overflow-hidden transition-all group-hover:shadow-[0_30px_80px_rgba(0,0,0,0.08)] group-hover:border-blue-100/50">
                   <div className="relative">
                     <h3 className="text-3xl font-black text-slate-900 tracking-tight select-none">
                       {sucursalSeleccionada.nombre_sucursal}
                     </h3>
-                    
+
                     <div className="flex items-center gap-2 text-slate-500 font-medium text-sm mt-3 select-none">
                       <div className="p-1.5 bg-blue-50 rounded-lg text-blue-600 shrink-0">
                         <MapPin className="w-4 h-4" />
@@ -528,29 +634,58 @@ export default function Recomendar() {
                       <span>{sucursalSeleccionada.direccion}</span>
                     </div>
 
+                    {/* Explicación del razonamiento de la IA o aviso de alternativa */}
+                    {esLaRecomendada && result?.sucursal_recomendada ? (
+                      <div className="mt-4 flex items-start gap-2 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3">
+                        <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-emerald-800 font-medium leading-relaxed">
+                          {generarExplicacionRecomendacion(result.sucursal_recomendada, result.alternativas)}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3">
+                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700 font-medium leading-relaxed">
+                          Elegiste una sucursal diferente a la recomendada. Puedes continuar con esta selección si prefieres.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-5 mt-10">
                       <div className="bg-slate-50/80 p-5 rounded-[24px] border border-slate-100 select-none">
                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                          <Clock className="w-3 h-3 text-blue-500" /> Espera
+                          <Clock className="w-3 h-3 text-blue-500" /> Tiempo total
                         </div>
                         <div className="flex items-end gap-1 mt-2">
                           {(() => {
                             const t = tiempoDisplay(sucursalSeleccionada.tiempo_total_min)
                             return <span className={t.clase}>{t.texto}</span>
                           })()}
-                          {sucursalSeleccionada.tiempo_total_min && sucursalSeleccionada.tiempo_total_min > 0 && (
-                            <span className="text-xs font-bold text-slate-400 mb-1.5 uppercase">min</span>
-                          )}
                         </div>
+                        <p className="text-[9px] text-slate-400 font-medium mt-1 leading-tight">traslado + espera en clínica</p>
                       </div>
                       <div className="bg-slate-50/80 p-5 rounded-[24px] border border-slate-100 select-none">
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                          <Activity className="w-3 h-3 text-emerald-500" /> Capacidad
-                        </div>
-                        <div className="flex items-end gap-1 mt-2">
-                          <span className="text-3xl font-black text-slate-900">{sucursalSeleccionada.estudios_disponibles}</span>
-                          <span className="text-xs font-bold text-slate-400 mb-1.5 uppercase">ítems</span>
-                        </div>
+                        {sucursalSeleccionada.distancia_km != null && sucursalSeleccionada.distancia_km > 0 ? (
+                          <>
+                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                              <MapPin className="w-3 h-3 text-blue-500" /> Distancia
+                            </div>
+                            <div className="flex items-end gap-1 mt-2">
+                              <span className="text-3xl font-black text-slate-900">{sucursalSeleccionada.distancia_km}</span>
+                              <span className="text-xs font-bold text-slate-400 mb-1.5 uppercase">km</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                              <Activity className="w-3 h-3 text-emerald-500" /> Estudios disponibles
+                            </div>
+                            <div className="flex items-end gap-1 mt-2">
+                              <span className="text-3xl font-black text-slate-900">{sucursalSeleccionada.estudios_disponibles}</span>
+                              <span className="text-xs font-bold text-slate-400 mb-1.5 uppercase">de los tuyos</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -688,7 +823,7 @@ export default function Recomendar() {
         )}
 
         {/* Otras Opciones */}
-        {result && !result.sin_estudios && result.alternativas && result.alternativas.length > 0 && (
+        {(!result?.aviso_contenido || avisoAceptado) && result && !result.sin_estudios && result.alternativas && result.alternativas.length > 0 && (
           <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden transition-all hover:shadow-md">
             <button
               onClick={() => setShowOthers(!showOthers)}
@@ -702,7 +837,7 @@ export default function Recomendar() {
             {showOthers && (
               <div className="px-6 pb-6 space-y-4 pt-4 animate-in slide-in-from-top-4">
                 {result.alternativas.map((alt: any, idx: number) => (
-                  <div className="p-5 bg-slate-50/50 rounded-2xl border border-transparent hover:border-blue-100 hover:bg-white hover:shadow-lg transition-all flex justify-between items-center group/item">
+                  <div key={alt.id_sucursal ?? idx} className="p-5 bg-slate-50/50 rounded-2xl border border-transparent hover:border-blue-100 hover:bg-white hover:shadow-lg transition-all flex justify-between items-center group/item">
                     <div>
                       <p className="font-bold text-slate-800 group-hover/item:text-blue-600 transition-colors">{alt.nombre_sucursal}</p>
                       <p className="text-xs text-slate-400 font-bold uppercase mt-1 tracking-widest">{alt.ciudad}</p>

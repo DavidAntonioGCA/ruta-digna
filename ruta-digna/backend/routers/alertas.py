@@ -11,17 +11,26 @@ router = APIRouter()
 
 
 @router.get("/{id_sucursal}")
-async def get_alertas_sucursal(id_sucursal: int):
+async def get_alertas_sucursal(id_sucursal: int, id_estudio: int | None = None):
     """
-    Obtiene todas las alertas activas de una sucursal.
-    Ordenadas por severidad: crítica > alta > media > baja.
+    Obtiene alertas activas de una sucursal.
+    Si se pasa id_estudio, filtra solo las generales (id_estudio=NULL)
+    y las específicas de ese estudio.
     """
     try:
         sb = get_supabase()
         result = sb.rpc("fn_obtener_alertas_sucursal", {
             "p_id_sucursal": id_sucursal
         }).execute()
-        return result.data or []
+        alertas = result.data or []
+
+        if id_estudio is not None:
+            alertas = [
+                a for a in alertas
+                if a.get("id_estudio") is None or a.get("id_estudio") == id_estudio
+            ]
+
+        return alertas
     except Exception as e:
         raise HTTPException(500, str(e))
 

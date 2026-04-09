@@ -98,9 +98,30 @@ export const getVisitasActivas = () => apiFetch<Array<{ visita_id: string }>>(`/
 export const getEstudiosDisponibles = () => apiFetch<Array<{ id: number; nombre: string }>>('/estudios/')
 
 
+export type SucursalInfo = {
+  id_sucursal:          number
+  nombre_sucursal:      string
+  direccion:            string
+  ciudad:               string
+  /** Tiempo de espera en clínica (sin traslado). null = sin datos. */
+  tiempo_espera_min:    number | null
+  /** Tiempo de traslado estimado en minutos. null = sin ubicación del usuario. */
+  tiempo_traslado_min:  number | null
+  /** Suma de espera + traslado. null = sin datos. */
+  tiempo_total_min:     number | null
+  /** Distancia en km desde la ubicación del usuario. null = sin ubicación. */
+  distancia_km:         number | null
+  score:                number
+  estudios_disponibles: number
+  /** Solo presente en la sucursal recomendada. Explica el porqué en español. */
+  razon_recomendacion?: string
+}
+
 export interface RecomendacionResponse {
-  sucursal_recomendada: { id_sucursal: number; nombre_sucursal: string; direccion: string; ciudad: string; tiempo_total_min: number | null; score: number; estudios_disponibles: number } | null
-  alternativas: any[]; estudios_detectados: string[]; ids_estudios_detectados: number[]
+  sucursal_recomendada: SucursalInfo | null
+  alternativas:         SucursalInfo[]
+  estudios_detectados:  string[]
+  ids_estudios_detectados: number[]
   orden_sugerido: { id_estudio: number; orden: number; nombre: string; requiere_preparacion: boolean; preparacion: string }[]
   advertencia?: string
   sin_estudios?: boolean
@@ -114,6 +135,19 @@ export const recomendar = (mensaje: string, lat?: number, lon?: number) =>
 
 export const chatAsistente = (visita_id: string, mensaje: string, historial: any[] = []) =>
   apiFetch<{ reply: string }>('/ia/chat', { method: 'POST', body: JSON.stringify({ visita_id, mensaje, historial }) })
+
+// Chat especializado para interpretar resultados médicos (usa prompt diferente al de navegación)
+export const chatResultado = (
+  contexto_resultado: string,
+  mensaje: string,
+  historial: any[] = [],
+  archivo_base64?: string,
+  media_type?: string,
+) =>
+  apiFetch<{ reply: string }>('/ia/chat-resultado', {
+    method: 'POST',
+    body: JSON.stringify({ contexto_resultado, mensaje, historial, archivo_base64, media_type }),
+  })
 
 export const explicarResultados = (data: { imagen_base64?: string; media_type?: string; resultados?: string }) =>
   apiFetch<{ reply: string }>('/ia/explicar-resultados', { method: 'POST', body: JSON.stringify(data) })
