@@ -2,13 +2,13 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ClipboardList, MapPin, Activity, FileText } from "lucide-react"
+import { ClipboardList, MapPin, Activity, Settings2 } from "lucide-react"
 
 const navItems = [
   { href: "/antes-de-ir", icon: ClipboardList, label: "Preparación" },
-  { href: "/recomendar", icon: MapPin, label: "Mi clínica" },
-  { href: "/tracking", icon: Activity, label: "Mi visita" },
-  { href: "/resultados", icon: FileText, label: "Resultados" },
+  { href: "/recomendar",  icon: MapPin,         label: "Mi clínica"  },
+  { href: "/tracking",    icon: Activity,       label: "Mi visita"   },
+  { href: "/ajustes",     icon: Settings2,      label: "Ajustes"     },
 ]
 
 export default function BottomNav() {
