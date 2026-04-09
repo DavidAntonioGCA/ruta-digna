@@ -1,0 +1,71 @@
+# Ruta Digna Documentación Oficial
+
+## Portada
+**Título:** Ruta Digna Documentación Oficial  
+**Fecha:** 2026-04-09  
+**Versión:** 1.0
+
+---
+
+## Resumen Ejecutivo
+Se presenta la documentación oficial del proyecto Ruta Digna, que busca abordar...
+
+## Problemática
+Este proyecto responde a la necesidad de...
+
+## Solución Propuesta
+La solución propuesta consiste en...
+
+## Arquitectura Técnica
+- **Backend:** FastAPI + Claude API puerto 4000  
+- **Dashboard:** React 18 + Vite + Chart.js puerto 3001
+
+## Funcionalidades
+Algunas de las funcionalidades del proyecto son...
+
+## Datos de Ejemplo
+- **Visita ID:** 06b8efbf-67bc-426c-9523-3059d0dec059  
+- **Paciente:** María González
+
+## Metodología Git
+La metodología de Git utilizada es...
+
+## Requisitos Técnicos
+Los requisitos técnicos abarcan...
+
+## Roadmap
+El roadmap del proyecto incluye...
+
+## Roles del Equipo
+- **Arturo:** Backend  
+- **David:** Dashboard  
+- **Adrián:** UX/QA
+
+## Detalles de Supabase
+Supabase se utiliza como base de datos para...
+
+---
+
+## Tabla de Contenidos
+1. Portada  
+2. Resumen Ejecutivo  
+3. Problemática  
+4. Solución Propuesta  
+5. Arquitectura Técnica  
+6. Funcionalidades  
+7. Datos de Ejemplo  
+8. Metodología Git  
+9. Requisitos Técnicos  
+10. Roadmap  
+11. Roles del Equipo  
+12. Detalles de Supabase
+
+---
+
+### Numeración de Páginas
+*Página X* 
+
+---
+
+### Pie de Página
+Fecha: 2026-04-09  |  Versión: 1.0
