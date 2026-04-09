@@ -89,3 +89,16 @@ export const chatAsistente = (visita_id: string, mensaje: string, historial: any
 
 export const explicarResultados = (data: { imagen_base64?: string; media_type?: string; resultados?: string }) =>
   apiFetch<{ reply: string }>('/ia/explicar-resultados', { method: 'POST', body: JSON.stringify(data) })
+
+export interface ResultadoEstudio {
+  id: string
+  id_visita: string
+  nombre_archivo: string
+  url_archivo: string
+  tipo_estudio: string
+  interpretacion_ia: string | null
+  subido_por: string
+  created_at: string
+}
+export const getResultadosVisita = (visitaId: string) =>
+  apiFetch<ResultadoEstudio[]>(`/resultados/visita/${visitaId}`)

@@ -45,6 +45,18 @@ export const crearAlerta = (body: {
 export const resolverAlerta = (alertaId: string) =>
   api.patch(`/alertas/${alertaId}/resolver`, { resuelta_por: 'operador' }).then(r => r.data)
 
+// ── Resultados ───────────────────────────────────────────────
+export const subirResultado = (formData: FormData) =>
+  api.post('/resultados/subir', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data)
+
+export const getResultadosVisita = (visitaId: string) =>
+  api.get(`/resultados/visita/${visitaId}`).then(r => r.data)
+
+export const getHistorialPaciente = (visitaId: string) =>
+  api.get(`/resultados/historial/${visitaId}`).then(r => r.data)
+
 // ── Guías ─────────────────────────────────────────────────────
 export const getGuiasSucursal = (idSucursal: number) =>
   api.get(`/guias/sucursal/${idSucursal}`).then(r => r.data)

@@ -7,21 +7,31 @@ import {
 import {
   checkHealth, getClinicas, getVisitasActivas, avanzarEstudio,
   cambiarTipoPaciente, getAlertas, crearAlerta, resolverAlerta,
-  getVisitasEspecialista
+  getVisitasEspecialista, subirResultado, getResultadosVisita, getHistorialPaciente
 } from './api'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 // ── Flujo de estatus ──────────────────────────────────────────────
 const FLUJO_DEMO = [
-  { id: 1,  nombre: 'PAGADO',      paso: 'espera',      progreso: 0   },
-  { id: 9,  nombre: 'INICIO_TOMA', paso: 'inicio_toma', progreso: 33  },
-  { id: 10, nombre: 'FIN_TOMA',    paso: 'fin_toma',    progreso: 66  },
-  { id: 12, nombre: 'VERIFICADO',  paso: 'finalizado',  progreso: 100 },
+  { id: 1,  nombre: 'PAGADO',      label: 'Iniciar cita',   paso: 'espera',      progreso: 0   },
+  { id: 9,  nombre: 'INICIO_TOMA', label: 'Terminar cita',  paso: 'inicio_toma', progreso: 33  },
+  { id: 10, nombre: 'FIN_TOMA',    label: 'Terminar cita',  paso: 'fin_toma',    progreso: 66  },
+  { id: 12, nombre: 'VERIFICADO',  label: '',               paso: 'finalizado',  progreso: 100 },
 ]
+// Flujo simplificado para la vista de especialista: solo 2 acciones
+const FLUJO_ESPECIALISTA: Record<number, { id: number; label: string; paso: string; progreso: number } | null> = {
+  1:  { id: 9,  label: 'Iniciar cita',  paso: 'inicio_toma', progreso: 50  }, // PAGADO → INICIO_TOMA
+  9:  { id: 12, label: 'Terminar cita', paso: 'finalizado',  progreso: 100 }, // INICIO_TOMA → VERIFICADO
+  10: { id: 12, label: 'Terminar cita', paso: 'finalizado',  progreso: 100 }, // FIN_TOMA → VERIFICADO (por si acaso)
+  12: null, // ya terminó
+}
 function getSiguienteEstatus(id: number) {
   const idx = FLUJO_DEMO.findIndex(f => f.id === id)
   return idx >= 0 && idx < FLUJO_DEMO.length - 1 ? FLUJO_DEMO[idx + 1] : null
+}
+function getSiguienteEspecialista(id: number) {
+  return FLUJO_ESPECIALISTA[id] ?? null
 }
 function estatusToId(nombre: string) {
   return nombre === 'PAGADO' ? 1 : nombre === 'INICIO_TOMA' ? 9 : nombre === 'FIN_TOMA' ? 10 : 12
@@ -198,7 +208,7 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
           <button disabled={advancing !== null}
             onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
             className="w-full text-xs bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium">
-            {advancing === actual.id_visita_estudio ? 'Avanzando...' : `→ Avanzar a ${siguiente.nombre}`}
+            {advancing === actual.id_visita_estudio ? 'Avanzando...' : siguiente.label}
           </button>
         )
       })()}
@@ -207,12 +217,21 @@ function VisitaRow({ visita, advancing, onAvanzar, onChangePriority }: {
 }
 
 // ── EspecialistaPacienteCard ──────────────────────────────────────
-function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onChangePriority }: {
+function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onChangePriority, especialistaNombre }: {
   visita: any; posicion: number; advancing: string | null
   onAvanzar: (visitaId: string, veId: string, estatusId: number) => void
   onChangePriority: (visitaId: string, tipo: string) => void
+  especialistaNombre: string
 }) {
   const [showMenu, setShowMenu] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
+  const [showHistorial, setShowHistorial] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadTipo, setUploadTipo] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [historial, setHistorial] = useState<any[] | null>(null)
+  const [historialLoading, setHistorialLoading] = useState(false)
   const tipoInfo = getTipoInfo(visita.tipo_paciente)
   const estudios: any[] = visita.estudios ?? []
   const actual = estudios.find((e: any) => e.es_actual)
@@ -316,28 +335,29 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
           </div>
         </div>
 
-        {/* Botón avanzar */}
+        {/* Botón avanzar — flujo simplificado para especialista */}
         {actual && (() => {
           const estatusId = estatusToId(actual.estatus)
-          const siguiente = getSiguienteEstatus(estatusId)
+          const siguiente = getSiguienteEspecialista(estatusId)
           if (!siguiente) return (
             <div className="mt-4 text-center text-xs text-green-600 font-semibold bg-green-50 py-2 rounded-xl">
-              ✓ Estudio completado en este servicio
+              ✓ Cita finalizada
             </div>
           )
+          const esCitaActiva = estatusId === 9 || estatusId === 10
           return (
             <button disabled={advancing !== null}
               onClick={() => onAvanzar(visita.visita_id, actual.id_visita_estudio ?? '', estatusId)}
               className={`w-full mt-4 text-sm font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
-                esUrgente
+                esCitaActiva
                   ? 'bg-red-600 hover:bg-red-700 text-white'
-                  : posicion === 1
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                  : 'bg-gray-800 hover:bg-black text-white'
+                  : esUrgente
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
               }`}>
               {advancing === actual.id_visita_estudio
                 ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Procesando...</>
-                : <>→ Avanzar a {siguiente.nombre}</>
+                : <>{siguiente.label}</>
               }
             </button>
           )
@@ -347,6 +367,106 @@ function EspecialistaPacienteCard({ visita, posicion, advancing, onAvanzar, onCh
           <p className="text-[10px] text-gray-400 mt-2 text-center">
             {completados.length} completado{completados.length > 1 ? 's' : ''} · {pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''} después
           </p>
+        )}
+
+        {/* Acciones: Subir resultado + Historial */}
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => { setShowUpload(!showUpload); setShowHistorial(false); setUploadMsg(null) }}
+            className="flex-1 text-xs font-semibold py-2 rounded-xl border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors flex items-center justify-center gap-1.5">
+            📤 Subir resultado
+          </button>
+          <button
+            onClick={async () => {
+              setShowHistorial(!showHistorial); setShowUpload(false)
+              if (!showHistorial && historial === null) {
+                setHistorialLoading(true)
+                try {
+                  const data = await getHistorialPaciente(visita.visita_id)
+                  setHistorial(data.resultados ?? [])
+                } catch { setHistorial([]) }
+                finally { setHistorialLoading(false) }
+              }
+            }}
+            className="flex-1 text-xs font-semibold py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5">
+            📋 Historial
+          </button>
+        </div>
+
+        {/* Panel de subida */}
+        {showUpload && (
+          <div className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-100 space-y-3">
+            <p className="text-xs font-bold text-blue-700 uppercase tracking-wider">Subir resultado al paciente</p>
+            <input
+              type="text" placeholder="Tipo de estudio (ej: Laboratorio)"
+              value={uploadTipo} onChange={e => setUploadTipo(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-blue-200 bg-white outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors text-xs font-medium ${uploadFile ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-blue-200 text-blue-400 hover:border-blue-400'}`}>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                onChange={e => { setUploadFile(e.target.files?.[0] ?? null); setUploadMsg(null) }} />
+              {uploadFile ? `✓ ${uploadFile.name}` : 'Seleccionar PDF o imagen...'}
+            </label>
+            <button
+              disabled={!uploadFile || uploading}
+              onClick={async () => {
+                if (!uploadFile) return
+                setUploading(true); setUploadMsg(null)
+                const fd = new FormData()
+                fd.append('file', uploadFile)
+                fd.append('visita_id', visita.visita_id)
+                fd.append('tipo_estudio', uploadTipo)
+                fd.append('especialista', especialistaNombre)
+                try {
+                  await subirResultado(fd)
+                  setUploadMsg({ ok: true, text: '✓ Resultado subido. La IA ya interpretó el archivo.' })
+                  setUploadFile(null); setUploadTipo('')
+                } catch (err: any) {
+                  setUploadMsg({ ok: false, text: `Error: ${err?.response?.data?.detail ?? err.message}` })
+                } finally { setUploading(false) }
+              }}
+              className="w-full py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+              {uploading ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Subiendo y analizando...</> : 'Subir y analizar con IA'}
+            </button>
+            {uploadMsg && (
+              <p className={`text-xs font-semibold text-center ${uploadMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                {uploadMsg.text}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Panel de historial */}
+        {showHistorial && (
+          <div className="mt-3 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
+            <p className="text-xs font-bold text-gray-600 uppercase tracking-wider">Historial de resultados</p>
+            {historialLoading && <p className="text-xs text-gray-400">Cargando...</p>}
+            {!historialLoading && historial?.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-2">Sin resultados anteriores</p>
+            )}
+            {historial?.map((r: any) => (
+              <div key={r.id} className="bg-white rounded-lg p-3 border border-gray-100 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-gray-800 truncate flex-1">{r.nombre_archivo}</span>
+                  <a href={r.url_archivo} target="_blank" rel="noopener noreferrer"
+                    className="shrink-0 text-blue-600 font-bold hover:underline">
+                    Abrir ↗
+                  </a>
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-gray-400">
+                  {r.tipo_estudio && <span className="font-bold text-blue-500 uppercase text-[10px]">{r.tipo_estudio}</span>}
+                  <span>{new Date(r.created_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                  {r.subido_por && <span>· por {r.subido_por}</span>}
+                </div>
+                {r.interpretacion_ia && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-blue-600 font-semibold text-[10px] uppercase tracking-wide">Ver interpretación IA</summary>
+                    <p className="mt-1 text-gray-600 leading-relaxed bg-blue-50 rounded p-2 whitespace-pre-wrap text-[10px]">{r.interpretacion_ia}</p>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -376,7 +496,7 @@ function EspecialistaView({ session, onLogout, connected }: {
   }, [fetchPacientes])
 
   const handleAvanzar = async (visitaId: string, veId: string, estatusId: number) => {
-    const siguiente = getSiguienteEstatus(estatusId)
+    const siguiente = getSiguienteEspecialista(estatusId)
     if (!siguiente) return
     setAdvancing(veId)
     try {
@@ -469,6 +589,7 @@ function EspecialistaView({ session, onLogout, connected }: {
                 advancing={advancing}
                 onAvanzar={handleAvanzar}
                 onChangePriority={handleChangePriority}
+                especialistaNombre={session.nombre}
               />
             ))}
           </div>

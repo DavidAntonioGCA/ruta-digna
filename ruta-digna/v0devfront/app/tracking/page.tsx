@@ -6,11 +6,11 @@ import {
   FlaskConical, Activity, ScanLine, Check, Send, Clock,
   MapPin, AlertTriangle, ChevronDown, ChevronUp, Navigation,
   Search, Bot, Sparkles, ArrowRight, User, ShieldCheck, Lock,
-  Timer, Calendar
+  Timer, Calendar, FileText, Download, ChevronRight, Loader2
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 import Footer from "@/components/Footer"
-import { getVisitaStatus, getColaPaciente, chatAsistente, buscarPaciente, type EstadoVisita, type EstudioVisita, type ColaPaciente } from "@/app/lib/api"
+import { getVisitaStatus, getColaPaciente, chatAsistente, buscarPaciente, getResultadosVisita, type EstadoVisita, type EstudioVisita, type ColaPaciente, type ResultadoEstudio } from "@/app/lib/api"
 
 // Temas visuales por tipo de estudio
 const ESTUDIO_THEME: Record<string, { icon: any, color: string, bg: string }> = {
@@ -188,6 +188,84 @@ const TIPO_LABELS: Record<string, { label: string; color: string; bg: string }> 
   discapacidad: { label: "DISCAPACIDAD", color: "text-purple-600", bg: "bg-purple-50 border-purple-100"},
   con_cita:     { label: "CON CITA",     color: "text-blue-600",   bg: "bg-blue-50 border-blue-100"  },
   sin_cita:     { label: "SIN CITA",     color: "text-slate-500",  bg: "bg-slate-50 border-slate-100"},
+}
+
+function ResultadosSection({ visitaId }: { visitaId: string }) {
+  const [resultados, setResultados] = useState<ResultadoEstudio[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getResultadosVisita(visitaId)
+      .then(setResultados)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [visitaId])
+
+  if (loading) return (
+    <div className="flex items-center gap-2 py-4 text-slate-400">
+      <Loader2 className="w-4 h-4 animate-spin" />
+      <span className="text-xs font-bold uppercase tracking-widest">Cargando resultados...</span>
+    </div>
+  )
+  if (resultados.length === 0) return (
+    <div className="bg-white rounded-[24px] p-8 border border-slate-100 text-center">
+      <FileText className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sin resultados por ahora</p>
+      <p className="text-xs text-slate-300 mt-1">El especialista subirá tus resultados aquí cuando estén listos</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      {resultados.map(r => (
+        <div key={r.id} className="bg-white rounded-[24px] border border-slate-100 overflow-hidden shadow-sm">
+          {/* Header del resultado */}
+          <div className="flex items-center gap-4 p-5">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5 text-blue-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-800 text-sm truncate">{r.nombre_archivo}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                {r.tipo_estudio && <span className="uppercase font-bold text-blue-500 mr-2">{r.tipo_estudio}</span>}
+                {new Date(r.created_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <a href={r.url_archivo} target="_blank" rel="noopener noreferrer"
+                className="w-9 h-9 rounded-2xl bg-slate-900 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+                title="Descargar">
+                <Download className="w-4 h-4" />
+              </a>
+              {r.interpretacion_ia && (
+                <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                  className="w-9 h-9 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors">
+                  <ChevronRight className={`w-4 h-4 transition-transform ${expandedId === r.id ? 'rotate-90' : ''}`} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Interpretación IA expandible */}
+          {r.interpretacion_ia && expandedId === r.id && (
+            <div className="px-5 pb-5 border-t border-slate-50 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Bot className="w-4 h-4 text-blue-500" />
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Interpretación IA</span>
+              </div>
+              <div className="bg-gradient-to-br from-blue-50 to-slate-50 rounded-2xl p-4 text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">
+                {r.interpretacion_ia}
+              </div>
+              <p className="text-[9px] text-slate-400 mt-2 text-center">
+                Esta interpretación es orientativa. Consulta siempre con tu médico tratante.
+              </p>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function Tracking() {
@@ -387,6 +465,16 @@ export default function Tracking() {
                 )
               })}
             </div>
+
+            {/* RESULTADOS DEL PACIENTE */}
+            <section className="px-1">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Mis Resultados</h2>
+                <div className="h-[1px] flex-1 bg-slate-100 ml-4" />
+              </div>
+              <ResultadosSection visitaId={visita.visita_id} />
+            </section>
+
             <Footer />
           </div>
         )}
