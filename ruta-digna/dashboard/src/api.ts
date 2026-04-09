@@ -15,6 +15,8 @@ export const getClinicaEstado   = (id: number) => api.get(`/clinicas/${id}/estad
 // ── Visitas ───────────────────────────────────────────────────
 export const getVisitasActivas  = () => api.get('/visitas/activas').then(r => r.data)
 export const getVisitaStatus    = (id: string) => api.get(`/visitas/status/${id}`).then(r => r.data)
+export const getVisitasEspecialista = (estudio: string) =>
+  api.get('/visitas/especialista', { params: { estudio } }).then(r => r.data)
 
 export const avanzarEstudio = (visitaId: string, body: {
   id_visita_estudio: string

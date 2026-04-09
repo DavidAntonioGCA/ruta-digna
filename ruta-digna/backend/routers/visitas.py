@@ -117,6 +117,45 @@ async def get_visitas_activas():
         raise HTTPException(500, str(e))
 
 
+@router.get("/especialista")
+async def get_visitas_especialista(estudio: str):
+    """
+    Pacientes cuyo estudio ACTUAL coincide con el área del especialista.
+    Retorna datos completos (con array de estudios) para avanzar estado y cambiar prioridad.
+    """
+    try:
+        sb = get_supabase()
+
+        # Buscar visitas activas cuyo estudio actual coincide
+        activas = sb.from_("v_visitas_activas").select("visita_id").ilike(
+            "estudio_actual", f"%{estudio}%"
+        ).execute()
+
+        if not activas.data:
+            return []
+
+        PRIO = {"urgente": 1, "embarazada": 2, "adulto_mayor": 3,
+                "discapacidad": 4, "con_cita": 5, "sin_cita": 6}
+
+        visitas = []
+        for row in activas.data:
+            try:
+                estado = sb.rpc("fn_obtener_estado_visita",
+                                {"p_visita_id": row["visita_id"]}).execute()
+                if estado.data:
+                    visitas.append(estado.data)
+            except Exception:
+                pass
+
+        visitas.sort(key=lambda v: (
+            PRIO.get(v.get("tipo_paciente", "sin_cita"), 6),
+            v.get("timestamp_llegada", "")
+        ))
+        return visitas
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @router.patch("/{visita_id}/avanzar")
 async def avanzar_estudio(visita_id: str, body: AvanzarEstudioRequest):
     """

@@ -6,7 +6,8 @@ import {
 } from 'chart.js'
 import {
   checkHealth, getClinicas, getVisitasActivas, avanzarEstudio,
-  cambiarTipoPaciente, getAlertas, crearAlerta, resolverAlerta
+  cambiarTipoPaciente, getAlertas, crearAlerta, resolverAlerta,
+  getVisitasEspecialista
 } from './api'
 import api from './api'
 
@@ -74,8 +75,123 @@ function getTipoInfo(tipo: string) {
   return TIPOS_PACIENTE.find(t => t.value === tipo) || TIPOS_PACIENTE[5]
 }
 
+// ── Estudios disponibles por área ────────────────────────────────
+const ESTUDIOS_AREA = [
+  { key: 'LABORATORIO',  label: 'Laboratorio',  icon: '🧪', color: 'bg-blue-600'   },
+  { key: 'ULTRASONIDO',  label: 'Ultrasonido',  icon: '📡', color: 'bg-emerald-600' },
+  { key: 'RAYOS X',      label: 'Rayos X',      icon: '☢️',  color: 'bg-purple-600' },
+  { key: 'TOMOGRAFIA',   label: 'Tomografía',   icon: '🔬', color: 'bg-orange-600'  },
+  { key: 'ELECTROCARDIOGRAMA', label: 'ECG',    icon: '❤️',  color: 'bg-red-600'    },
+]
+
+// ── Panel de Especialista ─────────────────────────────────────────
+function EspecialistaPanel({ advancing, onAvanzar, onChangePriority }: {
+  advancing: string | null
+  onAvanzar: (visitaId: string, veId: string, estatusId: number) => void
+  onChangePriority: (visitaId: string, tipo: string) => void
+}) {
+  const [estudioSeleccionado, setEstudioSeleccionado] = useState<string | null>(null)
+  const [pacientes, setPacientes] = useState<any[]>([])
+  const [loadingPacientes, setLoadingPacientes] = useState(false)
+
+  const fetchPacientes = useCallback(() => {
+    if (!estudioSeleccionado) return
+    setLoadingPacientes(true)
+    getVisitasEspecialista(estudioSeleccionado)
+      .then(data => setPacientes(Array.isArray(data) ? data : []))
+      .catch(() => setPacientes([]))
+      .finally(() => setLoadingPacientes(false))
+  }, [estudioSeleccionado])
+
+  useEffect(() => {
+    if (!estudioSeleccionado) return
+    fetchPacientes()
+    const iv = setInterval(fetchPacientes, 5000)
+    return () => clearInterval(iv)
+  }, [fetchPacientes, estudioSeleccionado])
+
+  const areaInfo = ESTUDIOS_AREA.find(e => e.key === estudioSeleccionado)
+
+  return (
+    <div>
+      {/* Selector de área */}
+      <div className="mb-6">
+        <p className="text-xs text-gray-500 font-medium mb-3 uppercase tracking-wide">Selecciona tu área</p>
+        <div className="flex flex-wrap gap-2">
+          {ESTUDIOS_AREA.map(est => (
+            <button
+              key={est.key}
+              onClick={() => { setEstudioSeleccionado(est.key); setPacientes([]) }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                estudioSeleccionado === est.key
+                  ? `${est.color} text-white shadow-lg scale-105`
+                  : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <span>{est.icon}</span>
+              {est.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lista de pacientes del área */}
+      {estudioSeleccionado ? (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-900">
+              {areaInfo?.icon} Pacientes en {areaInfo?.label}
+            </h2>
+            <div className="flex items-center gap-2">
+              {loadingPacientes && (
+                <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              )}
+              <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                pacientes.length > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {pacientes.length} paciente{pacientes.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+
+          {pacientes.length === 0 && !loadingPacientes ? (
+            <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+              <p className="text-3xl mb-2">✅</p>
+              <p className="text-sm font-medium text-gray-500">Sin pacientes en espera</p>
+              <p className="text-xs text-gray-400 mt-1">Cola de {areaInfo?.label} vacía</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pacientes.map((v: any, idx: number) => (
+                <div key={v.visita_id} className="relative">
+                  {/* Badge de posición */}
+                  <div className="absolute -left-2 -top-2 z-10 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-black flex items-center justify-center shadow">
+                    {idx + 1}
+                  </div>
+                  <VisitaRow
+                    visita={v}
+                    advancing={advancing}
+                    onAvanzar={onAvanzar}
+                    onChangePriority={onChangePriority}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <p className="text-3xl mb-2">👆</p>
+          <p className="text-sm font-medium text-gray-500">Selecciona tu área de trabajo</p>
+          <p className="text-xs text-gray-400 mt-1">Verás solo los pacientes de tu servicio</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Tabs ──────────────────────────────────────────────────────────
-type TabId = 'colas' | 'pacientes' | 'alertas'
+type TabId = 'colas' | 'pacientes' | 'especialista' | 'alertas'
 
 // ── StatsCard ─────────────────────────────────────────────────────
 function StatsCard({ label, value, sub, accent }: {
@@ -538,9 +654,10 @@ export default function App() {
   }
 
   const TABS: { id: TabId; label: string; count?: number }[] = [
-    { id: 'colas',     label: 'Colas por área' },
-    { id: 'pacientes', label: 'Pacientes', count: visitas.length || undefined },
-    { id: 'alertas',   label: 'Alertas',   count: alertas.length || undefined },
+    { id: 'colas',        label: 'Colas por área' },
+    { id: 'pacientes',    label: 'Todos', count: visitas.length || undefined },
+    { id: 'especialista', label: 'Mi área' },
+    { id: 'alertas',      label: 'Alertas', count: alertas.length || undefined },
   ]
 
   return (
@@ -681,6 +798,14 @@ export default function App() {
               }
             </div>
           </div>
+        )}
+
+        {activeTab === 'especialista' && (
+          <EspecialistaPanel
+            advancing={advancing}
+            onAvanzar={handleAvanzar}
+            onChangePriority={handleChangePriority}
+          />
         )}
 
         {activeTab === 'alertas' && (
