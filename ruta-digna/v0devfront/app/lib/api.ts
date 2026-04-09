@@ -95,12 +95,18 @@ export const crearVisita = (body: {
 export const getGuiaVisita = (visitaId: string) => apiFetch<any[]>(`/guias/visita/${visitaId}`)
 export const getEstudiosReordenables = (visitaId: string) => apiFetch<any>(`/visitas/${visitaId}/estudios-reordenables`)
 export const getVisitasActivas = () => apiFetch<Array<{ visita_id: string }>>(`/visitas/activas`)
+export const getEstudiosDisponibles = () => apiFetch<Array<{ id: number; nombre: string }>>('/estudios/')
+
 
 export interface RecomendacionResponse {
-  sucursal_recomendada: { id_sucursal: number; nombre_sucursal: string; direccion: string; ciudad: string; tiempo_total_min: number; score: number; estudios_disponibles: number }
+  sucursal_recomendada: { id_sucursal: number; nombre_sucursal: string; direccion: string; ciudad: string; tiempo_total_min: number | null; score: number; estudios_disponibles: number } | null
   alternativas: any[]; estudios_detectados: string[]; ids_estudios_detectados: number[]
-  orden_sugerido: { orden: number; nombre: string; requiere_preparacion: boolean; preparacion: string }[]
+  orden_sugerido: { id_estudio: number; orden: number; nombre: string; requiere_preparacion: boolean; preparacion: string }[]
   advertencia?: string
+  sin_estudios?: boolean
+  mensaje?: string
+  confianza?: 'alta' | 'baja'
+  aviso_contenido?: string | null
 }
 
 export const recomendar = (mensaje: string, lat?: number, lon?: number) =>

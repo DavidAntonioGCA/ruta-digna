@@ -6,7 +6,7 @@ import Link from "next/link"
 import {
   X, User, Phone, LogOut, Activity, ChevronRight, Lock,
   Bell, BellOff, Copy, CheckCheck, FileText, Trash2,
-  Share2, Sparkles, ChevronDown, ChevronUp, MapPin, Settings2
+  Share2, Sparkles, ChevronDown, ChevronUp, MapPin, Settings2, UserCircle2
 } from "lucide-react"
 
 interface Session {
@@ -176,8 +176,15 @@ export default function SettingsDrawer({ open, onClose }: { open: boolean; onClo
           {/* Perfil */}
           <div className="bg-gradient-to-br from-slate-900 to-blue-900 rounded-2xl p-5 text-white">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
-                <User className="w-6 h-6 text-white/70" />
+              <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
+                {(() => {
+                  const foto = typeof window !== 'undefined' && session?.paciente_id
+                    ? localStorage.getItem(`rd_foto_${session.paciente_id}`)
+                    : null
+                  return foto
+                    ? <img src={foto} alt="Foto" className="w-full h-full object-cover" />
+                    : <User className="w-6 h-6 text-white/70" />
+                })()}
               </div>
               <div className="min-w-0">
                 <p className="font-black text-base truncate">{session?.nombre ?? "Sin sesión"}</p>
@@ -196,6 +203,16 @@ export default function SettingsDrawer({ open, onClose }: { open: boolean; onClo
                 </span>
               </div>
             )}
+          </div>
+
+          {/* Mi visita */}
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1 px-1">Mi cuenta</p>
+            <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-50 overflow-hidden">
+              <NavItem icon={UserCircle2} iconBg="bg-blue-50 text-blue-600"
+                label="Mi Perfil" sublabel="Nombre, foto, tipo de paciente"
+                href="/perfil" onClose={onClose} />
+            </div>
           </div>
 
           {/* Mi visita */}

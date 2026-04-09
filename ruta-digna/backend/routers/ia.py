@@ -55,8 +55,22 @@ async def recomendar_sucursal(body: RecomendarRequest):
             extraccion = {"estudios_mencionados": [], "zona_o_referencia": None}
 
         estudios_detectados = extraccion.get("estudios_mencionados", [])
+        confianza_claude = extraccion.get("confianza_extraccion", "alta")  # campo nuevo del prompt
+        contenido_no_medico: bool = extraccion.get("contenido_no_medico", False)
+        resumen_no_medico: str | None = extraccion.get("resumen_no_medico", None)
         print("Estudios extraídos (lista):", estudios_detectados) # <-- DEBUG
+        print("Contenido no médico:", contenido_no_medico, resumen_no_medico) # <-- DEBUG
         ids_estudios = []
+        ids_con_coincidencia_directa: list[int] = []  # IDs encontrados sin pasar por mapeo de sinónimos
+
+        # Construir aviso de contenido no médico (se propaga aunque haya estudios válidos)
+        aviso_contenido: str | None = None
+        if contenido_no_medico and resumen_no_medico:
+            aviso_contenido = (
+                f"Notamos que mencionaste '{resumen_no_medico}' — ese tipo de procedimiento "
+                f"no está disponible en Salud Digna. "
+                f"Sin embargo, detectamos estudios que sí podemos atenderte."
+            )
 
         # Paso 2: Buscar IDs en Python (para evitar crasheos de ilike en Supabase)
         res_estudios = sb.table("estudios").select("id,nombre,preparacion_instrucciones,requiere_preparacion").execute()
@@ -70,6 +84,7 @@ async def recomendar_sucursal(body: RecomendarRequest):
             for est in todos_los_estudios:
                 if nombre_limpio in est["nombre"].upper():
                     ids_estudios.append(est["id"])
+                    ids_con_coincidencia_directa.append(est["id"])  # coincidencia directa
                     encontrado_en_bd = True
                     break
             
@@ -91,15 +106,48 @@ async def recomendar_sucursal(body: RecomendarRequest):
                     "ECO": "ULTRASONIDO",
                     "ECOGRAFIA": "ULTRASONIDO",
                     "ECOGRAFÍA": "ULTRASONIDO",
-                    "TAC": "TOMOGRAFÍA",
-                    "TOMOGRAFIA": "TOMOGRAFÍA",
-                    "RESONANCIA": "RESONANCIA MAGNÉTICA",
-                    "RM": "RESONANCIA MAGNÉTICA",
-                    "VISTA": "EXAMEN DE LA VISTA",
-                    "LENTES": "EXAMEN DE LA VISTA",
-                    "PAPA": "PAPANICOLAOU",
+                    "TAC": "TOMOGRAFIA",
+                    "TOMOGRAFIA": "TOMOGRAFIA",
+                    "TOMOGRAFÍA": "TOMOGRAFIA",
+                    "RESONANCIA": "RESONANCIA MAGNETICA",
+                    "RM": "RESONANCIA MAGNETICA",
+                    # Optometría / examen de la vista
+                    "VISTA": "OPTOMETRIA",
+                    "LENTES": "OPTOMETRIA",
+                    "OPTOM": "OPTOMETRIA",
+                    "OPTOMETRIA": "OPTOMETRIA",
+                    "OPTOMETRÍA": "OPTOMETRIA",
+                    # Nutrición
+                    "NUTRICI": "NUTRICION",
+                    "NUTRICION": "NUTRICION",
+                    "NUTRICIÓN": "NUTRICION",
+                    "DIETA": "NUTRICION",
+                    # Audiometría
+                    "AUDIO": "AUDIOMETRIA",
+                    "AUDITIV": "AUDIOMETRIA",
+                    "OIDO": "AUDIOMETRIA",
+                    "OÍDO": "AUDIOMETRIA",
+                    # Espirometría
+                    "ESPIRO": "ESPIROMETRIA",
+                    "PULMON": "ESPIROMETRIA",
+                    "PULMÓN": "ESPIROMETRIA",
+                    # Densitometría
+                    "DENSITO": "DENSITOMETRIA",
+                    "HUESO": "DENSITOMETRIA",
+                    "OSTEO": "DENSITOMETRIA",
+                    # Mastografía
+                    "MASTO": "MASTOGRAFIA",
+                    "MAMA": "MASTOGRAFIA",
+                    "SENO": "MASTOGRAFIA",
+                    # Electrocardiograma
                     "ELECTRO": "ELECTROCARDIOGRAMA",
-                    "ECG": "ELECTROCARDIOGRAMA"
+                    "ECG": "ELECTROCARDIOGRAMA",
+                    "CORAZON": "ELECTROCARDIOGRAMA",
+                    "CORAZÓN": "ELECTROCARDIOGRAMA",
+                    # Papanicolaou
+                    "PAPA": "PAPANICOLAOU",
+                    "PAP": "PAPANICOLAOU",
+                    "CERVICAL": "PAPANICOLAOU",
                 }
                 
                 encontrado = False
@@ -111,16 +159,51 @@ async def recomendar_sucursal(body: RecomendarRequest):
                             encontrado = True
                             break
                             
-                # Si de plano no encuentra nada y el id -2 existe (examen vista)
-                if not encontrado and ("VISTA" in nombre_limpio or "LENTES" in nombre_limpio):
-                    res_vista = sb.table("estudios").select("id").eq("id", -2).execute()
-                    if res_vista.data:
-                        ids_estudios.append(-2)
+                # Último fallback: buscar optometría por ID directo (8)
+                if not encontrado and any(k in nombre_limpio for k in ("VISTA", "LENTES", "OPTOM")):
+                    res_opt = sb.table("estudios").select("id").eq("id", 8).execute()
+                    if res_opt.data:
+                        ids_estudios.append(8)
+                        encontrado = True
 
         if not ids_estudios:
-            # Fallback: si no hay estudios, forzamos Laboratorio (ID 2)
-            ids_estudios = [2]
-            estudios_detectados = ["Laboratorio General (Predeterminado)"]
+            # Sin estudios detectados: devolver respuesta indicativa
+            # Si tiene contenido no médico, ajustar el mensaje
+            if contenido_no_medico and resumen_no_medico:
+                mensaje_sin_estudios = (
+                    f"Notamos que mencionaste '{resumen_no_medico}', que no es un servicio disponible en Salud Digna. "
+                    f"Si también necesitas estudios de diagnóstico, cuéntanos cuáles son."
+                )
+            else:
+                mensaje_sin_estudios = (
+                    "No detectamos estudios médicos en tu mensaje. "
+                    "¿Puedes describirnos qué síntomas o estudios necesitas? "
+                    "Por ejemplo: 'laboratorio', 'ultrasonido', 'rayos X', etc."
+                )
+            return {
+                "sin_estudios": True,
+                "confianza": "baja",
+                "aviso_contenido": aviso_contenido,
+                "mensaje": mensaje_sin_estudios,
+                "estudios_detectados": [],
+                "ids_estudios_detectados": [],
+                "sucursal_recomendada": None,
+                "alternativas": [],
+                "orden_sugerido": []
+            }
+
+        # ── Determinar confianza final ──────────────────────────────────────────────
+        # Reglas del backend (complementan la señal de Claude):
+        # 1. Mensaje muy corto (<3 palabras) → baja
+        # 2. Claude reportó baja → baja
+        # 3. Ningún estudio tuvo coincidencia directa (todo pasó por sinónimos) → baja
+        palabras_mensaje = body.mensaje.strip().split()
+        hay_directa = len(ids_con_coincidencia_directa) > 0
+        confianza: str
+        if confianza_claude == "baja" or len(palabras_mensaje) < 3 or not hay_directa:
+            confianza = "baja"
+        else:
+            confianza = "alta"
 
         # Paso 3: Recomendar sucursales con score REAL desde la DB
         # - tiempo_total_min usa fn_calcular_tiempo_espera (colas + consultorios + históricos)
@@ -147,18 +230,29 @@ async def recomendar_sucursal(body: RecomendarRequest):
             ).eq("id", item["id_estudio"]).single().execute()
             if est.data:
                 orden_con_nombres.append({
+                    "id_estudio":           item["id_estudio"],
                     "orden":                item["orden_calculado"],
                     "nombre":               est.data["nombre"],
                     "requiere_preparacion": est.data["requiere_preparacion"],
                     "preparacion":          est.data["preparacion_instrucciones"]
                 })
 
+        # Normalizar tiempo_total_min: si es 0 o None, convertir a None para que el frontend
+        # muestre "Sin datos" en lugar de "~0 min"
+        def normalizar_sucursal(s: dict) -> dict:
+            t = s.get("tiempo_total_min")
+            return {**s, "tiempo_total_min": t if (t and t > 0) else None}
+
+        sucursales_norm = [normalizar_sucursal(s) for s in sucursales]
+
         return {
-            "sucursal_recomendada":      sucursales[0],
-            "alternativas":              sucursales[1:],
+            "sucursal_recomendada":      sucursales_norm[0],
+            "alternativas":              sucursales_norm[1:],
             "estudios_detectados":       estudios_detectados,
             "ids_estudios_detectados":   ids_estudios,
-            "orden_sugerido":            orden_con_nombres
+            "orden_sugerido":            orden_con_nombres,
+            "confianza":                 confianza,
+            "aviso_contenido":           aviso_contenido,
         }
 
     except HTTPException:

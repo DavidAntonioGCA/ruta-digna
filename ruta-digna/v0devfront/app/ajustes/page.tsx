@@ -7,7 +7,7 @@ import {
   User, Phone, LogOut, Activity, ChevronRight, Shield,
   Bell, BellOff, Copy, CheckCheck, FileText, HelpCircle,
   Info, Sparkles, Trash2, Share2, ExternalLink, Lock,
-  ChevronDown, ChevronUp, MapPin
+  ChevronDown, ChevronUp, MapPin, UserCircle2
 } from "lucide-react"
 import BottomNav from "@/components/BottomNav"
 
@@ -154,10 +154,25 @@ export default function Ajustes() {
         {/* PERFIL */}
         <section>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-3">Mi cuenta</p>
+          <div className="mb-2">
+            <SettingRow
+              icon={UserCircle2} iconBg="bg-blue-50 text-blue-600"
+              label="Mi Perfil"
+              sublabel="Editar nombre, foto y ver tu tipo de paciente"
+              href="/perfil"
+            />
+          </div>
           <div className="bg-gradient-to-br from-slate-900 to-blue-900 rounded-3xl p-6 text-white">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center">
-                <User className="w-7 h-7 text-white/70" />
+              <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden">
+                {(() => {
+                  const foto = typeof window !== 'undefined' && session?.paciente_id
+                    ? localStorage.getItem(`rd_foto_${session.paciente_id}`)
+                    : null
+                  return foto
+                    ? <img src={foto} alt="Foto" className="w-full h-full object-cover" />
+                    : <User className="w-7 h-7 text-white/70" />
+                })()}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-lg font-black tracking-tight truncate">

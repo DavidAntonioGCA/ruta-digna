@@ -98,7 +98,7 @@ export default function Login() {
     try {
       const data = await loginPaciente(telefono, pin)
       saveSession(data.paciente_id, data.nombre, telefono, data.visita_id, data.tipo_paciente)
-      router.push(data.visita_id ? `/tracking?id=${data.visita_id}` : "/recomendar")
+      router.push(data.visita_id ? `/antes-de-ir?id=${data.visita_id}` : "/recomendar")
     } catch (e: any) {
       setError(e.message?.includes("401") ? "PIN incorrecto. Intenta de nuevo." : "Error de conexión.")
     } finally { setLoading(false) }

@@ -10,6 +10,18 @@ except ImportError:
 
 router = APIRouter()
 
+@router.get("/")
+async def list_estudios():
+    """Devuelve todos los estudios disponibles (id, nombre) para el selector de la app."""
+    try:
+        sb = get_supabase()
+        res = sb.table("estudios").select("id,nombre").order("nombre").execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+
 @router.get("/{id}/restricciones", response_model=RestriccionesResponse)
 async def get_estudio_restricciones(
     id: int, 

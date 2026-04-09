@@ -79,10 +79,40 @@ Ejemplos de inferencias obligatorias:
 Regla de ORO: NO respondas con el nombre que dio el paciente (ej. no pongas "EGO"). DEBES traducir su petición a la categoría oficial correspondiente (ej. "LABORATORIO").
 
 Del mensaje del paciente, extrae en JSON exactamente:
-{ "estudios_mencionados": [lista de categorías oficiales], "zona_o_referencia": string_o_null, "horario_preferido": string_o_null }
+{
+  "estudios_mencionados": [lista de categorías oficiales],
+  "zona_o_referencia": string_o_null,
+  "horario_preferido": string_o_null,
+  "confianza_extraccion": "alta" | "baja",
+  "contenido_no_medico": true | false,
+  "resumen_no_medico": string_o_null
+}
 
 Lista OFICIAL de categorías (usa SOLO estos nombres exactos): 
 LABORATORIO, RAYOS X, ULTRASONIDO, DENSITOMETRÍA, MASTOGRAFÍA, PAPANICOLAOU, ELECTROCARDIOGRAMA, TOMOGRAFÍA, RESONANCIA MAGNÉTICA, NUTRICIÓN, EXAMEN DE LA VISTA, ÓPTICA, SALUD OCUPACIONAL.
+
+Reglas para "confianza_extraccion":
+- "alta": el mensaje menciona explícitamente un estudio, abreviatura o procedimiento médico reconocible.
+  Ejemplos: "necesito laboratorio", "quiero hacerme el EGO y BH", "me mandaron ultrasonido", "rayos X de tórax".
+- "baja": el mensaje es vago, no menciona ningún estudio concreto, describe solo síntomas sin pedir un estudio,
+  o no tiene relación médica clara.
+  Ejemplos: "me duele la cabeza desde hace 3 días", "necesito una cara nueva", "quiero checarme",
+  "no me siento bien", "quiero ir al doctor".
+
+Reglas para "contenido_no_medico" y "resumen_no_medico":
+- "contenido_no_medico": true si el mensaje incluye solicitudes que Salud Digna NO puede atender:
+  cirugías estéticas, implantes (de cualquier tipo), procedimientos quirúrgicos que no son estudios de diagnóstico,
+  groserías, solicitudes absurdas o con lenguaje inapropiado, peticiones imposibles médicamente.
+  Si el mensaje mezcla contenido no médico CON estudios válidos, marca contenido_no_medico: true
+  pero extrae los estudios válidos igualmente en estudios_mencionados.
+- "resumen_no_medico": descripción corta de la parte no médica (ej. "implante de pene", "cirugía estética",
+  "solicitud no relacionada con estudios de diagnóstico"). Solo si contenido_no_medico es true.
+  Si contenido_no_medico es false, este campo debe ser null.
+
+Ejemplos completos:
+- "necesito laboratorio y ultrasonido" → contenido_no_medico: false, resumen_no_medico: null
+- "quiero un pene nuevo más laboratorio y rayos X" → contenido_no_medico: true, resumen_no_medico: "implante de pene", estudios_mencionados: ["LABORATORIO", "RAYOS X"]
+- "necesito una cara nueva" → contenido_no_medico: true, resumen_no_medico: "cirugía estética facial", estudios_mencionados: []
 
 IMPORTANTE: Responde SOLO el JSON, sin texto adicional, sin markdown, sin backticks.
 """.strip()

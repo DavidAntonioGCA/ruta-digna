@@ -198,7 +198,7 @@ function ResultadosSection({ visitaId }: { visitaId: string }) {
   useEffect(() => {
     getResultadosVisita(visitaId)
       .then(setResultados)
-      .catch(() => {})
+      .catch(() => setResultados([]))   // 404 o error → lista vacía, sin ruido en consola
       .finally(() => setLoading(false))
   }, [visitaId])
 
