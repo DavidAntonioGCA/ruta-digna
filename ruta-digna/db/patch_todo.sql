@@ -277,3 +277,97 @@ begin
   return v_resultado;
 end;
 $$;
+
+
+-- ── 5. fn_score_recomendacion_sucursal — distancia 0 si no hay coords ──
+-- Bug fix: antes usaba 999 km como fallback (igual para todos),
+-- pero COALESCE(lat,0) en el llamador pasaba 0 como coordenada real
+-- haciendo que Mazatlán ganara por estar levemente más cerca del (0,0).
+-- Ahora: sin coordenadas de usuario → distancia = 0 para todos → ranking
+-- se basa puramente en tiempo de espera.
+create or replace function fn_score_recomendacion_sucursal(
+  p_id_sucursal  integer,
+  p_ids_estudios integer[],
+  p_lat_usuario  numeric default null,
+  p_lon_usuario  numeric default null
+)
+returns numeric language plpgsql stable as $$
+declare
+  v_tiempo_total  integer := 0;
+  v_distancia_km  numeric;
+  v_lat           numeric;
+  v_lon           numeric;
+  v_id_estudio    integer;
+begin
+  foreach v_id_estudio in array p_ids_estudios loop
+    v_tiempo_total := v_tiempo_total +
+      fn_calcular_tiempo_espera(p_id_sucursal, v_id_estudio);
+  end loop;
+
+  select latitud, longitud into v_lat, v_lon
+  from   sucursales where id = p_id_sucursal and activa = true;
+
+  -- Sin coordenadas del usuario → distancia 0 para todas las sucursales
+  -- (ranking queda determinado solo por tiempo de espera en cola)
+  if v_lat is not null and p_lat_usuario is not null
+     and p_lat_usuario <> 0 and p_lon_usuario <> 0 then
+    v_distancia_km := sqrt(
+      pow((v_lat - p_lat_usuario) * 111.0, 2) +
+      pow((v_lon - p_lon_usuario) * 111.0 * cos(radians(p_lat_usuario)), 2)
+    );
+  else
+    v_distancia_km := 0;
+  end if;
+
+  return round((v_tiempo_total * 0.6) + (v_distancia_km * 0.4), 2);
+end;
+$$;
+
+
+-- ── 6. fn_recomendar_sucursales — pasa lat/lon sin coalesce ─────────
+create or replace function fn_recomendar_sucursales(
+  p_ids_estudios integer[],
+  p_lat_usuario  numeric default null,
+  p_lon_usuario  numeric default null,
+  p_limite       integer default 5
+)
+returns table (
+  id_sucursal          integer,
+  nombre_sucursal      text,
+  direccion            text,
+  ciudad               text,
+  tiempo_total_min     integer,
+  score                numeric,
+  estudios_disponibles integer
+) language plpgsql stable as $$
+begin
+  return query
+  select
+    s.id,
+    s.nombre,
+    s.direccion,
+    s.ciudad,
+    fn_calcular_tiempo_espera_visita_sim(s.id, p_ids_estudios),
+    fn_score_recomendacion_sucursal(
+      s.id, p_ids_estudios,
+      p_lat_usuario,   -- sin coalesce: null se propaga correctamente
+      p_lon_usuario
+    ),
+    (
+      select count(*)::integer
+      from   consultorios_por_sucursal cp
+      where  cp.id_sucursal = s.id and cp.id_estudio = any(p_ids_estudios)
+    )
+  from sucursales s
+  where s.activa = true
+    and (
+      select count(*)
+      from   consultorios_por_sucursal cp
+      where  cp.id_sucursal = s.id and cp.id_estudio = any(p_ids_estudios)
+    ) = array_length(p_ids_estudios, 1)
+  order by fn_score_recomendacion_sucursal(
+    s.id, p_ids_estudios, p_lat_usuario, p_lon_usuario
+  ) asc
+  limit p_limite;
+end;
+$$;

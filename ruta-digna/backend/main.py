@@ -34,6 +34,28 @@ app.include_router(guias.router,     prefix="/guias",     tags=["Guías"])
 def health():
     return {"status": "ok", "proyecto": "Ruta Digna", "version": "2.0.0"}
 
+
+@app.post("/admin/sync-colas", tags=["Sistema"])
+async def sync_todas_las_colas():
+    """Sincroniza colas_en_tiempo_real para TODAS las sucursales activas."""
+    try:
+        from backend.services.supabase_client import get_supabase
+    except ImportError:
+        from services.supabase_client import get_supabase
+    try:
+        sb = get_supabase()
+        sucursales = sb.table("sucursales").select("id, nombre").eq("activa", True).execute()
+        resultados = []
+        for s in (sucursales.data or []):
+            try:
+                sb.rpc("fn_sincronizar_colas", {"p_id_sucursal": s["id"]}).execute()
+                resultados.append({"id": s["id"], "nombre": s["nombre"], "ok": True})
+            except Exception as e:
+                resultados.append({"id": s["id"], "nombre": s["nombre"], "ok": False, "error": str(e)})
+        return {"sincronizadas": len([r for r in resultados if r["ok"]]), "detalle": resultados}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 @app.get("/paciente/buscar", tags=["Visitas"])
 async def buscar_paciente(telefono: str):
     """Busca un paciente por teléfono y retorna su visita activa."""
